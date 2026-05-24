@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { TrendingUp, TrendingDown, Award, Star, Calendar } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
-import { effectiveCyclePoints } from "@/lib/pointsLedger";
+import { effectiveCyclePoints, getTransactionShortReason } from "@/lib/pointsLedger";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
 import { calculateIncentive, getPerformanceLevel } from "@/lib/points";
 import { filterRecordsInCycle } from "@/lib/pointsWorkflow";
@@ -282,7 +282,7 @@ export default function StaffDashboard() {
                           {pts}
                         </span>
                       </td>
-                      <td className="text-slate-300 text-sm">{row.reason}</td>
+                      <td className="text-slate-300 text-sm">{getTransactionShortReason(row)}</td>
                       <td>
                         <span
                           className={

@@ -3,7 +3,7 @@ import { Search, Plus, Phone, Edit2, UserCheck, Loader2, Eye, ClipboardList } fr
 import { useSupabaseQuery, logActivity } from "@/hooks/useSupabaseQuery";
 import { isCurrentlyOnShift, matchesOrderedSegments, percent } from "@/lib/utils";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
-import { effectiveCyclePoints, pointRecordDelta, type PointLedgerRecord } from "@/lib/pointsLedger";
+import { effectiveCyclePoints, getTransactionShortReason, pointRecordDelta, type PointLedgerRecord } from "@/lib/pointsLedger";
 import { BRANCHES, DAYS_AR, ROLES, INITIAL_POINTS } from "@/lib/constants";
 import { useAuth, getSafeCurrentUserId } from "@/hooks/useAuth";
 import { toast } from "sonner";
@@ -632,7 +632,7 @@ function EmployeeDetailsModal({ employee, schedules, transactions, onClose }: { 
                       </span>
                       <span className="text-slate-400 text-xs">{new Date(t.created_at).toLocaleDateString('ar-EG')}</span>
                     </div>
-                    <div className="text-white text-sm font-medium">{t.reason}</div>
+                    <div className="text-white text-sm font-medium">{getTransactionShortReason(t)}</div>
                     {t.description && <div className="text-slate-400 text-xs mt-1">{t.description}</div>}
                     <div className="flex gap-4 mt-2 text-xs">
                       {(t.points !== null && t.points !== undefined) || (t.points_delta !== null && t.points_delta !== undefined) ? (

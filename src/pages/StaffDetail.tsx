@@ -10,7 +10,7 @@ import { getCurrentCycle, isDateInCycle } from "@/lib/pharmacy-cycle";
 import { computeStaffPerformance2027, performanceRecommendation } from "@/lib/dawaa2027Data";
 import { formatMoney, formatNumber } from "@/lib/dawaa2027";
 import { monthCycleFromDate, type ReviewItemSummary } from "@/lib/conversationReviews";
-import { effectiveCyclePoints, pointRecordDelta } from "@/lib/pointsLedger";
+import { effectiveCyclePoints, getTransactionShortReason, pointRecordDelta } from "@/lib/pointsLedger";
 import { TABLES } from "@/lib/supabaseTables";
 
 interface StaffRow {
@@ -662,7 +662,7 @@ function RecordsBox({ title, rows, sign, tone, onOpen }: { title: string; rows: 
                 className={`text-right truncate ${isReview ? "text-teal-300 hover:text-teal-200 underline underline-offset-4" : "text-slate-300"}`}
                 disabled={!isReview}
               >
-                {r.reason}
+                {getTransactionShortReason(r)}
               </button>
               <span className={`${tone === "teal" ? "text-teal-400" : "text-red-400"} font-bold num`}>
                 {sign}{points}

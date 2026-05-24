@@ -23,7 +23,15 @@ import {
   persistPointsTransaction,
   applyStaffDelta,
 } from "@/lib/pointsPersistence";
-import { isApprovedPointRecord, pointRecordDelta } from "@/lib/pointsLedger";
+import {
+  formatTransactionExecutor,
+  formatTransactionSource,
+  getTransactionDetails,
+  getTransactionShortReason,
+  isApprovedPointRecord,
+  normalizeTransactionType,
+  pointRecordDelta,
+} from "@/lib/pointsLedger";
 import { filterRecordsInCycle } from "@/lib/pointsWorkflow";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -56,6 +64,19 @@ interface PointRecord {
   status?: string | null;
   month_cycle?: string | null;
   source?: string | null;
+  title?: string | null;
+  created_by_name?: string | null;
+  approved_by_name?: string | null;
+  manager_name?: string | null;
+  executor_name?: string | null;
+  clean_reason?: string | null;
+  display_reason?: string | null;
+  item_name?: string | null;
+  item_quantity?: number | null;
+  source_label?: string | null;
+  display_source?: string | null;
+  source_id?: string | null;
+  metadata?: unknown;
 }
 
 type RecordStatus = "approved" | "pending" | "rejected";
@@ -71,30 +92,6 @@ const EMPTY_FORM = {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-function stripLegacyNoise(value: string) {
-  return String(value || "")
-    .replace(/RULE__[A-Z0-9_]+/gi, " ")
-    .replace(/CMP_[A-Z0-9_]+/gi, " ")
-    .replace(/status:approved/gi, " ")
-    .replace(/created_by_role/gi, " ")
-    .replace(/base:\d+/gi, " ")
-    .replace(/repeat:\d+/gi, " ")
-    .replace(/multiplier:\d+/gi, " ")
-    .replace(/final:\d+/gi, " ")
-    .replace(/approver:[^\s]+/gi, " ")
-    .replace(/[[\]{}|,]+/g, " ")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-}
-
-function humanizeTransaction(row: PointRecord) {
-  const raw = [row.reason, row.manager_note, row.description].filter(Boolean).join(" ");
-  const cleaned = stripLegacyNoise(raw);
-  if (cleaned) return cleaned;
-  if (row.source === "stagnant_medicine_dispense") return "حافز صرف صنف راكد";
-  return "سجل نقاط بدون تفاصيل كافية";
-}
-
 function recordStatus(r: PointRecord): RecordStatus {
   const raw = String(r.status || "approved").toLowerCase();
   if (["approved", "active", "done", "completed", "معتمد"].includes(raw)) return "approved";
@@ -104,16 +101,16 @@ function recordStatus(r: PointRecord): RecordStatus {
 }
 
 function pointRecordNote(row: PointRecord) {
-  return humanizeTransaction(row);
+  return getTransactionShortReason(row);
 }
 
 function pointRecordMeta(row: PointRecord) {
   const date = row.transaction_date || row.created_at;
-  return `المنفذ: ${row.created_by || "النظام"} — الموظف: ${row.employee_name || "غير محدد"} — التاريخ: ${date ? formatDateTime(date) : "غير محدد"}`;
+  return `المنفذ: ${formatTransactionExecutor(row)} — المصدر: ${formatTransactionSource(row)} — التاريخ: ${date ? formatDateTime(date) : "غير محدد"}`;
 }
 
 function isBonus(r: PointRecord) {
-  return r.type === "مكافأة" || r.type === "bonus";
+  return normalizeTransactionType(r) === "reward";
 }
 
 function absPoints(r: PointRecord) {
@@ -142,6 +139,7 @@ export default function PenaltyIncentiveManagement() {
   const [statusFilter, setStatusFilter] = useState("كل");
   const [search, setSearch] = useState("");
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [selectedRecord, setSelectedRecord] = useState<PointRecord | null>(null);
 
   // ── Data queries ──
   const { data: staffList, refetch: refetchStaff } =
@@ -204,7 +202,7 @@ export default function PenaltyIncentiveManagement() {
       if (search) {
         const q = search.toLowerCase();
         const text =
-          `${r.employee_name} ${r.reason} ${r.created_by}`.toLowerCase();
+          `${r.employee_name} ${pointRecordNote(r)} ${formatTransactionExecutor(r)} ${formatTransactionSource(r)} ${r.branch}`.toLowerCase();
         if (!text.includes(q)) return false;
       }
       return true;
@@ -517,9 +515,9 @@ export default function PenaltyIncentiveManagement() {
                 const { label: stLabel, cls: stCls } = statusMeta(st);
                 const pts = absPoints(row);
                 return (
-                  <tr key={row.id}>
+                  <tr key={row.id} className="cursor-pointer hover:bg-white/[0.03]" onClick={() => setSelectedRecord(row)}>
                     <td className="font-medium text-white">
-                      <button type="button" onClick={() => navigate(`/staff/${row.staff_id || row.employee_id}`)} className="text-teal-300 hover:text-teal-200 underline underline-offset-4">
+                      <button type="button" onClick={(event) => { event.stopPropagation(); navigate(`/staff/${row.staff_id || row.employee_id}`); }} className="text-teal-300 hover:text-teal-200 underline underline-offset-4">
                         {row.employee_name || "غير محدد"}
                       </button>
                     </td>
@@ -553,7 +551,7 @@ export default function PenaltyIncentiveManagement() {
                       <span className={stCls}>{stLabel}</span>
                     </td>
                     <td className="text-slate-400 text-xs max-w-[160px] truncate">
-                      {row.created_by}
+                      {formatTransactionExecutor(row)}
                     </td>
                     <td className="text-slate-400 text-xs whitespace-nowrap">
                       {formatDateTime(row.created_at)}
@@ -564,14 +562,14 @@ export default function PenaltyIncentiveManagement() {
                           <div className="flex gap-1">
                             <button
                               type="button"
-                              onClick={() => handleApprove(row, true)}
+                              onClick={(event) => { event.stopPropagation(); handleApprove(row, true); }}
                               className="px-2 py-1 rounded text-xs bg-teal-500/15 text-teal-400 hover:bg-teal-500/25 transition-colors"
                             >
                               اعتماد
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleApprove(row, false)}
+                              onClick={(event) => { event.stopPropagation(); handleApprove(row, false); }}
                               className="px-2 py-1 rounded text-xs bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors"
                             >
                               رفض
@@ -591,6 +589,14 @@ export default function PenaltyIncentiveManagement() {
             عرض {filteredRecords.length} سجل (آخر 100 إدخال)
           </div>
         </div>
+      )}
+
+      {selectedRecord && (
+        <TransactionDetailsModal
+          record={selectedRecord}
+          onClose={() => setSelectedRecord(null)}
+          onStaff={() => navigate(`/staff/${selectedRecord.staff_id || selectedRecord.employee_id}`)}
+        />
       )}
 
       {/* Add Modal */}
@@ -749,6 +755,46 @@ export default function PenaltyIncentiveManagement() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function TransactionDetailsModal({ record, onClose, onStaff }: { record: PointRecord; onClose: () => void; onStaff: () => void }) {
+  const details = getTransactionDetails(record);
+  const fields = [
+    ["الموظف", details.employee],
+    ["النوع", details.type],
+    ["النقاط", details.points],
+    ["السبب المختصر", details.reason],
+    ["الوصف", details.fullDescription],
+    ["المصدر", details.source],
+    ["المنفذ", details.executor],
+    ["تاريخ الإنشاء", details.createdAt],
+    ["تاريخ الاعتماد", details.approvedAt],
+    ["الفرع", details.branch],
+    ["الدورة", details.cycle],
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-2xl rounded-2xl border border-[#2d4063] bg-[#10213a] shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-white/10 p-5">
+          <div>
+            <h2 className="text-lg font-black text-white">تفاصيل سجل النقاط</h2>
+            <p className="mt-1 text-xs text-slate-400">عرض إداري نظيف بدون أكواد أو بيانات تقنية</p>
+          </div>
+          <button type="button" onClick={onClose} className="btn-secondary px-3 py-2">إغلاق</button>
+        </div>
+        <div className="max-h-[70vh] space-y-3 overflow-y-auto p-5">
+          {fields.map(([label, value]) => (
+            <div key={label} className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
+              <div className="text-xs text-slate-400">{label}</div>
+              <div className="mt-1 whitespace-pre-line text-sm font-semibold text-white">{value || "غير محدد"}</div>
+            </div>
+          ))}
+          <button type="button" onClick={onStaff} className="btn-primary w-full">فتح ملف الموظف</button>
+        </div>
+      </div>
     </div>
   );
 }

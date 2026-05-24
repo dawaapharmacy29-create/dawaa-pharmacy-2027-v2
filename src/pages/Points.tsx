@@ -8,7 +8,7 @@ import { BRANCHES, INITIAL_POINTS } from "@/lib/constants";
 import { mergeRulesFromSupabase, type EvaluationRuleDef } from "@/lib/evaluationRulesCatalog";
 import { calculateIncentive, getPerformanceLevel, MAX_BASE_INCENTIVE, POINT_VALUE_EGP } from "@/lib/points";
 import { approverHintFromRule, applyStaffDelta } from "@/lib/pointsPersistence";
-import { effectiveCyclePoints, pointRecordDelta } from "@/lib/pointsLedger";
+import { effectiveCyclePoints, formatTransactionExecutor, getTransactionShortReason, pointRecordDelta } from "@/lib/pointsLedger";
 import { filterRecordsInCycle, type PointsTxnStatus } from "@/lib/pointsWorkflow";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
 import { mergeStaffChoices } from "@/lib/staffFallback";
@@ -54,6 +54,12 @@ interface PointRecord {
   source_type?: string | null;
   source?: string | null;
   source_id?: string | null;
+  title?: string | null;
+  created_by_name?: string | null;
+  executor_name?: string | null;
+  item_name?: string | null;
+  item_quantity?: number | null;
+  metadata?: unknown;
   month_cycle?: string | null;
   cycle_start?: string | null;
   cycle_end?: string | null;
@@ -626,15 +632,15 @@ function RecordsTable({
                   <td className="text-slate-300">
                     {isConversationReview ? (
                       <Link to={`/staff/${resolvedEmployeeId}?review=${row.source_id}`} className="text-teal-300 hover:text-teal-200 underline underline-offset-4" title="فتح تفاصيل تقييم المحادثة">
-                        {row.reason || "تقييم محادثة عميل"}
+                        {getTransactionShortReason(row) || "تقييم محادثة عميل"}
                       </Link>
                     ) : (
-                      row.reason
+                      getTransactionShortReason(row)
                     )}
                   </td>
                   <td className="text-slate-300 text-xs">{parseNoteStatus(row.manager_note) || row.status || "معتمد"}</td>
                   <td className="text-slate-400 text-xs max-w-[200px] truncate">{cleanManagerNote(row.manager_note)}</td>
-                  <td className="text-slate-400">{row.created_by}</td>
+                  <td className="text-slate-400">{formatTransactionExecutor(row)}</td>
                   <td className="text-slate-400 text-xs">{formatDateTime(row.created_at)}</td>
                 </tr>
               );
@@ -701,7 +707,7 @@ function ApprovalsBoard({ pending, onApprove }: { pending: PointRecord[]; onAppr
           <div key={row.id} className="stat-card flex flex-col md:flex-row md:items-center gap-3 border border-amber-500/20">
             <div className="flex-1">
               <div className="text-white font-bold text-sm">{row.employee_name}</div>
-              <div className="text-slate-400 text-xs mt-1">{row.reason}</div>
+              <div className="text-slate-400 text-xs mt-1">{getTransactionShortReason(row)}</div>
               <div className="text-red-300 font-bold num mt-2">-{recordPoints(row)} نقطة</div>
             </div>
             <div className="flex gap-2">
@@ -734,8 +740,8 @@ function MineBoard({ rows }: { rows: PointRecord[] }) {
                 <span className={isPositive ? "badge-success" : "badge-danger"}>{row.type}</span>
                 <span className="text-slate-400 text-xs">{parseNoteStatus(row.manager_note) || row.status || "معتمد"}</span>
               </div>
-              <div className="text-white font-medium mt-2">{row.reason}</div>
-              {isDeductionRecord(row) && <div className="text-slate-400 text-xs mt-2">{improvementTip(row.reason)}</div>}
+              <div className="text-white font-medium mt-2">{getTransactionShortReason(row)}</div>
+              {isDeductionRecord(row) && <div className="text-slate-400 text-xs mt-2">{improvementTip(getTransactionShortReason(row))}</div>}
               <div className={`font-bold num mt-2 ${isPositive ? "text-teal-400" : "text-red-400"}`}>
                 {isPositive ? "+" : "-"}
                 {recordPoints(row)}
