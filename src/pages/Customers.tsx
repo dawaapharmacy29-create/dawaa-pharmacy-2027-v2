@@ -346,7 +346,14 @@ export default function Customers() {
       </div>
 
       {selected && (
-        <CustomerModal customer={selected} onClose={() => setSelected(null)} />
+        <CustomerModal
+          customer={selected}
+          onClose={() => setSelected(null)}
+          onSaved={(updated) => {
+            setSelected(updated);
+            setCustomers((current) => current.map((item) => item.id === updated.id ? updated : item));
+          }}
+        />
       )}
       {showAddModal && (
         <AddCustomerModal
@@ -370,76 +377,107 @@ function RetentionBadge({ status }: { status: string }) {
 }
 
 
+const CUSTOMER_FLAG_KEY_BY_LABEL: Record<string, string> = {
+  "يفضل دكتور معين": "prefers_specific_doctor",
+  "كثير الشكاوى": "many_complaints",
+  "حساس للسعر": "price_sensitive",
+  "لا يحب البدائل": "dislikes_alternatives",
+  "يفضل المستورد": "prefers_imported",
+  "عميل مزمن": "chronic_customer",
+  "يحتاج متابعة شهرية": "needs_monthly_followup",
+  "لا يتم التواصل معه كثيرًا": "do_not_contact_often",
+  "VIP": "vip_customer",
+  "عميل VIP": "vip_customer",
+  "مهم جدًا": "vip_customer",
+  "لا يحب الترشيحات": "dislikes_recommendations",
+  "يحتاج اتصال قبل التوصيل": "call_before_delivery",
+};
+
+function flagsToObject(flags: string[]) {
+  return flags.reduce<Record<string, boolean>>((acc, label) => {
+    const key = CUSTOMER_FLAG_KEY_BY_LABEL[label] || label;
+    acc[key] = true;
+    return acc;
+  }, {});
+}
+
+function flagsFromCustomer(customer: Customer) {
+  const rawFlags = (customer as unknown as { customer_flags?: unknown }).customer_flags;
+  if (rawFlags && typeof rawFlags === "object" && !Array.isArray(rawFlags)) {
+    const objectFlags = rawFlags as Record<string, unknown>;
+    const byKey = Object.fromEntries(Object.entries(CUSTOMER_FLAG_KEY_BY_LABEL).map(([label, key]) => [key, label]));
+    return Object.entries(objectFlags)
+      .filter(([, value]) => value === true)
+      .map(([key]) => byKey[key] || key);
+  }
+  return parseCustomerFlags(customer.notes, rawFlags);
+}
+
 async function saveCustomerServiceNotes(customer: Customer, notes: string, flags: string[] = []) {
   const mergedNotes = mergeFlagsIntoNotes(notes, flags);
   const payload = {
     notes: mergedNotes,
-    customer_flags: flags,
+    team_notes: notes,
+    handling_notes: notes,
+    customer_flags: flagsToObject(flags),
     updated_at: new Date().toISOString(),
   };
   const code = String(customer.customer_code || "").trim();
   const phone = String(customer.phone || "").trim();
   const id = String(customer.id || "").trim();
 
-  const attempts: Array<() => Promise<{ error: unknown }>> = [];
+  const attempts: Array<() => Promise<{ data?: unknown; error: unknown }>> = [];
   if (code) {
-    attempts.push(() => supabase.from("customer_analysis").update(payload).eq("customer_code", code));
-    attempts.push(() => supabase.from("customers").update(payload).eq("customer_code", code));
-    attempts.push(() => supabase.from("customers").update(payload).eq("code", code));
+    attempts.push(() => supabase.from("customers").update(payload).eq("customer_code", code).select("*").maybeSingle());
+    attempts.push(() => supabase.from("customers").update(payload).eq("code", code).select("*").maybeSingle());
   }
   if (phone) {
-    attempts.push(() => supabase.from("customer_analysis").update(payload).eq("phone", phone));
-    attempts.push(() => supabase.from("customer_analysis").update(payload).eq("customer_phone", phone));
-    attempts.push(() => supabase.from("customers").update(payload).eq("phone", phone));
-    attempts.push(() => supabase.from("customers").update(payload).eq("customer_phone", phone));
+    attempts.push(() => supabase.from("customers").update(payload).eq("phone", phone).select("*").maybeSingle());
+    attempts.push(() => supabase.from("customers").update(payload).eq("customer_phone", phone).select("*").maybeSingle());
   }
   if (id) {
-    attempts.push(() => supabase.from("customer_analysis").update(payload).eq("id", id));
-    attempts.push(() => supabase.from("customers").update(payload).eq("id", id));
+    attempts.push(() => supabase.from("customers").update(payload).eq("id", id).select("*").maybeSingle());
   }
 
-  let saved = false;
+  let saved: Customer | null = null;
   let lastError: unknown = null;
   for (const attempt of attempts) {
-    const { error } = await attempt();
-    if (!error) saved = true;
+    const { data, error } = await attempt();
+    if (!error && data) saved = data as Customer;
     else {
       lastError = error;
       const message = String((error as { message?: string })?.message || error || "");
-      if (message.includes("customer_flags") || message.includes("schema cache")) {
+      if (message.includes("customer_flags") || message.includes("team_notes") || message.includes("handling_notes") || message.includes("schema cache")) {
         const fallbackPayload = { notes: mergedNotes, updated_at: new Date().toISOString() };
-        const code = String(customer.customer_code || "").trim();
-        const phone = String(customer.phone || "").trim();
-        const id = String(customer.id || "").trim();
         const fallbackAttempts = [
-          code ? () => supabase.from("customer_analysis").update(fallbackPayload).eq("customer_code", code) : null,
-          code ? () => supabase.from("customers").update(fallbackPayload).eq("customer_code", code) : null,
-          code ? () => supabase.from("customers").update(fallbackPayload).eq("code", code) : null,
-          phone ? () => supabase.from("customer_analysis").update(fallbackPayload).eq("phone", phone) : null,
-          phone ? () => supabase.from("customer_analysis").update(fallbackPayload).eq("customer_phone", phone) : null,
-          phone ? () => supabase.from("customers").update(fallbackPayload).eq("phone", phone) : null,
-          id ? () => supabase.from("customer_analysis").update(fallbackPayload).eq("id", id) : null,
-          id ? () => supabase.from("customers").update(fallbackPayload).eq("id", id) : null,
-        ].filter(Boolean) as Array<() => Promise<{ error: unknown }>>;
+          code ? () => supabase.from("customers").update(fallbackPayload).eq("customer_code", code).select("*").maybeSingle() : null,
+          code ? () => supabase.from("customers").update(fallbackPayload).eq("code", code).select("*").maybeSingle() : null,
+          phone ? () => supabase.from("customers").update(fallbackPayload).eq("phone", phone).select("*").maybeSingle() : null,
+          id ? () => supabase.from("customers").update(fallbackPayload).eq("id", id).select("*").maybeSingle() : null,
+        ].filter(Boolean) as Array<() => Promise<{ data?: unknown; error: unknown }>>;
         for (const fallback of fallbackAttempts) {
           const result = await fallback();
-          if (!result.error) saved = true;
+          if (!result.error && result.data) saved = result.data as Customer;
         }
       }
     }
   }
 
   if (!saved && lastError) {
+    console.error("[customer notes] save failed:", lastError);
     throw lastError instanceof Error ? lastError : new Error("تعذر حفظ ملاحظات العميل. تأكد من تشغيل SQL الخاص بملاحظات العملاء.");
   }
+  return { ...customer, ...(saved || {}), notes: mergedNotes } as Customer;
 }
 
 function CustomerModal({
   customer: c,
   onClose,
+  onSaved,
 }: {
   customer: Customer;
   onClose: () => void;
+  onSaved: (customer: Customer) => void;
 }) {
   const avgMonthly = c.avg_monthly ?? 0;
   const totalPurchases = c.total_purchases ?? 0;
@@ -464,8 +502,8 @@ function CustomerModal({
   });
   const wa = whatsappLink(c.phone, script);
   const callHref = c.phone ? `tel:${c.phone}` : "";
-  const [notesText, setNotesText] = useState(String(c.notes || "").split("\n").filter((line) => !line.startsWith("FLAGS:")).join("\n"));
-  const [customerFlags, setCustomerFlags] = useState<string[]>(parseCustomerFlags(c.notes, (c as unknown as { customer_flags?: unknown }).customer_flags));
+  const [notesText, setNotesText] = useState(String((c as unknown as { team_notes?: string; handling_notes?: string }).team_notes || c.notes || "").split("\n").filter((line) => !line.startsWith("FLAGS:")).join("\n"));
+  const [customerFlags, setCustomerFlags] = useState<string[]>(flagsFromCustomer(c));
   const [savingNotes, setSavingNotes] = useState(false);
   useEscapeKey(onClose, true);
 
@@ -645,9 +683,11 @@ function CustomerModal({
               onClick={async () => {
                 setSavingNotes(true);
                 try {
-                  await saveCustomerServiceNotes(c, notesText, customerFlags);
+                  const updated = await saveCustomerServiceNotes(c, notesText, customerFlags);
+                  onSaved(updated);
                   toast.success("تم حفظ ملاحظات العميل وعلامات التعامل");
                 } catch (error) {
+                  console.error("[customer notes] save error:", error);
                   toast.error(error instanceof Error ? error.message : "تعذر حفظ الملاحظات");
                 } finally {
                   setSavingNotes(false);

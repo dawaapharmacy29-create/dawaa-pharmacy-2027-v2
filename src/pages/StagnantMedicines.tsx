@@ -386,11 +386,6 @@ export default function StagnantMedicines() {
     limit: 10000,
     realtimeEnabled: false,
   });
-  const { data: customerAnalysis } = useSupabaseQuery<CustomerOption>({
-    table: "customer_analysis",
-    limit: 10000,
-    realtimeEnabled: false,
-  });
   const { data: invoiceCustomers } = useSupabaseQuery<CustomerOption>({
     table: "sales_invoices",
     orderBy: { column: "invoice_date", ascending: false },
@@ -438,7 +433,6 @@ export default function StagnantMedicines() {
     const byKey = new Map<string, CustomerOption>();
     for (const customer of [
       ...(invoiceCustomers || []),
-      ...(customerAnalysis || []),
       ...(customers || []),
     ]) {
       const name = customer.customer_name || customer.name || "";
@@ -460,7 +454,7 @@ export default function StagnantMedicines() {
         "ar",
       ),
     );
-  }, [customerAnalysis, customers, invoiceCustomers, user?.branch]);
+  }, [customers, invoiceCustomers, user?.branch]);
 
   const filteredCustomerOptions = useMemo(() => {
     const query = customerSearchSubmitted.trim();
@@ -575,7 +569,6 @@ export default function StagnantMedicines() {
           } as CustomerOption)),
         );
         await searchTable("customers", term);
-        await searchTable("customer_analysis", term);
         await searchTable("sales_invoices", term);
       }
 

@@ -1,6 +1,7 @@
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import type { Customer, DailyFollowup } from "@/types/database";
 import { classifyCustomer, customerStatus } from "@/lib/customerMetrics";
+import { enrichCustomersWithSalesMetrics, fetchSalesInvoices } from "@/lib/salesInvoiceSource";
 import { getScript } from "@/lib/followupScripts";
 import { cleanEgyptianPhone } from "@/lib/whatsapp";
 import { logActivity } from "@/lib/activityLog";
@@ -298,10 +299,6 @@ async function loadCustomerPhoneLookup(followups: DailyFollowup[]) {
     { table: "customers", column: "code", key: "code" },
     { table: "customers", column: "name", key: "name" },
     { table: "customers", column: "customer_name", key: "name" },
-    { table: "customer_analysis", column: "customer_code", key: "code" },
-    { table: "customer_analysis", column: "code", key: "code" },
-    { table: "customer_analysis", column: "name", key: "name" },
-    { table: "customer_analysis", column: "customer_name", key: "name" },
   ];
 
   for (const search of searches) {
@@ -452,15 +449,16 @@ export async function generateTodayFollowups() {
   const existingSmartToday = ((todayRows ?? []) as DailyFollowup[]).filter(isSmartFollowup);
   if (existingSmartToday.length > 0) return getTodayFollowups();
 
-  const { data: analysisRows, error } = await supabase
-    .from("customer_analysis")
+  const { data: customerRows, error } = await supabase
+    .from("customers")
     .select("*")
-    .order("avg_monthly", { ascending: false })
+    .order("created_at", { ascending: false })
     .limit(1200);
 
   if (error) throw new Error(error.message);
 
-  const customers = ((analysisRows ?? []) as Record<string, unknown>[]).map(normalizeCustomer);
+  const invoices = await fetchSalesInvoices();
+  const customers = enrichCustomersWithSalesMetrics(((customerRows ?? []) as Record<string, unknown>[]).map(normalizeCustomer), invoices);
   const { data: recentRows } = await supabase
     .from("daily_followups")
     .select("*")

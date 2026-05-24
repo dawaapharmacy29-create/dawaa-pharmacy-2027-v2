@@ -1,6 +1,7 @@
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { phoneSearchTokens } from "@/lib/phone";
 import { matchesOrderedSegments } from "@/lib/utils";
+import { enrichCustomersWithSalesMetrics, fetchSalesInvoices, getInvoicesForCustomer, normalizeInvoice } from "@/lib/salesInvoiceSource";
 import type { Customer } from "@/types/database";
 
 const DEFAULT_LIMIT = 50;
@@ -336,20 +337,9 @@ async function getFallbackCustomers(options: GetCustomersOptions, limit: number,
 async function countCustomers(options: GetCustomersOptions = {}) {
   if (!isSupabaseConfigured) return 0;
 
-  let query = supabase
-    .from(PRIMARY_TABLE)
-    .select("customer_code", { count: "exact", head: true });
-
-  query = applyCustomerFilters(query, options);
-
-  const { count: cPrimary, error } = await query;
-  if (error) throw new Error(error.message);
-
   const { count: cRaw, error: errRaw } = await supabase.from("customers").select("id", { count: "exact", head: true });
-  const alt = errRaw ? 0 : (cRaw ?? 0);
-
-  /** بعض العملاء قد يكونون في جدول `customers` الكامل دون أن يُحدَّث `customer_analysis` بعد */
-  return Math.max(cPrimary ?? 0, alt);
+  if (errRaw) throw new Error(errRaw.message);
+  return cRaw ?? 0;
 }
 
 export async function getCustomers(options: GetCustomersOptions = {}) {
@@ -360,16 +350,12 @@ export async function getCustomers(options: GetCustomersOptions = {}) {
   const limit = normalizeLimit(options.limit);
   const offset = Math.max(options.offset ?? 0, 0);
 
-  try {
-    return await getAnalysisCustomers(options, limit, offset);
-  } catch (error) {
-    const message = getErrorMessage(error);
-    // أي خطأ في customer_analysis لا يوقف البحث؛ نرجع مباشرة لجدول customers الأقل تعقيدًا.
-    if (isMissingColumnError(error as { message?: string }) || message.includes("400") || message.includes("Bad Request")) {
-      return getFallbackCustomers(options, limit, offset);
-    }
-    throw new Error(message);
-  }
+  const result = await getFallbackCustomers(options, limit, offset);
+  const invoices = await fetchSalesInvoices();
+  return {
+    ...result,
+    customers: enrichCustomersWithSalesMetrics(result.customers, invoices),
+  };
 }
 
 export async function getCustomerById(id: string) {
@@ -378,13 +364,15 @@ export async function getCustomerById(id: string) {
   }
 
   const { data, error } = await supabase
-    .from(PRIMARY_TABLE)
+    .from("customers")
     .select("*")
-    .eq("customer_code", id)
-    .single();
+    .or(`id.eq.${id},customer_code.eq.${id},code.eq.${id}`)
+    .limit(1);
 
   if (error) throw new Error(error.message);
-  return normalizeCustomer(data as Record<string, unknown>);
+  const customer = normalizeCustomer(((data ?? []) as Record<string, unknown>[])[0] ?? {});
+  const invoices = await fetchSalesInvoices();
+  return enrichCustomersWithSalesMetrics([customer], invoices)[0];
 }
 
 function getCustomerLookup(customer: Customer) {
@@ -400,13 +388,8 @@ export async function getCustomerDetails(customer: Customer): Promise<CustomerDe
 
   const { code, phone } = getCustomerLookup(customer);
 
-  const [invoiceResult, followupResult] = await Promise.all([
-    supabase
-      .from("sales_invoices")
-      .select("invoice_number, invoice_date, amount, seller_name, branch")
-      .or(`customer_code.eq.${code},customer_phone.eq.${phone}`)
-      .order("invoice_date", { ascending: false })
-      .limit(200),
+  const [allInvoices, followupResult] = await Promise.all([
+    fetchSalesInvoices(),
     supabase
       .from("daily_followups")
       .select("*")
@@ -415,20 +398,20 @@ export async function getCustomerDetails(customer: Customer): Promise<CustomerDe
       .limit(30),
   ]);
 
-  if (invoiceResult.error && !isMissingColumnError(invoiceResult.error)) {
-    throw new Error(invoiceResult.error.message);
-  }
   if (followupResult.error && !isMissingColumnError(followupResult.error)) {
     throw new Error(followupResult.error.message);
   }
 
-  const invoices = ((invoiceResult.data ?? []) as Record<string, unknown>[]).map((row) => ({
-    invoice_number: readFirst(row, ["invoice_number"], null) as string | null,
-    invoice_date: readFirst(row, ["invoice_date"], null) as string | null,
-    amount: toNumber(readFirst(row, ["amount"], 0)),
-    seller_name: readFirst(row, ["seller_name"], null) as string | null,
-    branch: normalizeBranchName(readFirst(row, ["branch"], null)),
-  }));
+  const invoices = getInvoicesForCustomer(customer, allInvoices).slice(0, 200).map((row) => {
+    const invoice = normalizeInvoice(row);
+    return {
+      invoice_number: invoice.invoiceNumber || null,
+      invoice_date: invoice.invoiceDate,
+      amount: invoice.amount,
+      seller_name: invoice.doctor,
+      branch: normalizeBranchName(invoice.branch),
+    };
+  });
 
   const doctorScores = new Map<string, { count: number; total: number }>();
   for (const invoice of invoices) {
@@ -474,22 +457,22 @@ export async function getCustomerStats(): Promise<CustomerStats> {
     const [total, vip, newC, atRiskLost, atRiskWarning] = await Promise.all([
       countCustomers(),
       safeCount(supabase
-        .from(PRIMARY_TABLE)
-        .select("customer_code", { count: "exact", head: true })
-        .in("segment", ["مهم جداً", "مهم جدا", "مهم جدًّا"])),
+        .from("customers")
+        .select("id", { count: "exact", head: true })
+        .contains("customer_flags", { vip_customer: true })),
       safeCount(supabase
-        .from(PRIMARY_TABLE)
-        .select("customer_code", { count: "exact", head: true })
-        .eq("status", "جديد")
+        .from("customers")
+        .select("id", { count: "exact", head: true })
+        .gte("created_at", new Date(Date.now() - 30 * 86400000).toISOString())
       ),
       safeCount(supabase
-        .from(PRIMARY_TABLE)
-        .select("customer_code", { count: "exact", head: true })
+        .from("customers")
+        .select("id", { count: "exact", head: true })
         .eq("status", "مفقود")
       ),
       safeCount(supabase
-        .from(PRIMARY_TABLE)
-        .select("customer_code", { count: "exact", head: true })
+        .from("customers")
+        .select("id", { count: "exact", head: true })
         .eq("status", "معرض للفقدان")
       ),
     ]);

@@ -29,6 +29,15 @@ import StaffAccounts from "@/pages/StaffAccounts";
 import PenaltyIncentiveManagement from "@/pages/PenaltyIncentiveManagement";
 import StaffDashboard from "@/pages/StaffDashboard";
 import RolesPermissions from "@/pages/RolesPermissions";
+import ShelfOrganization from "@/pages/ShelfOrganization";
+import BranchCleaning from "@/pages/BranchCleaning";
+import InventoryCounts from "@/pages/InventoryCounts";
+import Shortages from "@/pages/Shortages";
+import Supplies from "@/pages/Supplies";
+import Accessories from "@/pages/Accessories";
+import StoriesOffers from "@/pages/StoriesOffers";
+import Training from "@/pages/Training";
+import WhatsappAnalytics from "@/pages/WhatsappAnalytics";
 import NotFound from "@/pages/NotFound";
 import { LOGO_URL } from "@/lib/constants";
 import PWABanner from "@/components/features/PWABanner";
@@ -171,6 +180,78 @@ export default function App() {
           element={
             <ProtectedRoute>
               <CustomerRequests />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/shelf-organization"
+          element={
+            <ProtectedRoute>
+              <ShelfOrganization />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/branch-cleaning"
+          element={
+            <ProtectedRoute>
+              <BranchCleaning />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/inventory-counts"
+          element={
+            <ProtectedRoute>
+              <InventoryCounts />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/shortages"
+          element={
+            <ProtectedRoute>
+              <Shortages />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/supplies"
+          element={
+            <ProtectedRoute>
+              <Supplies />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/accessories"
+          element={
+            <ProtectedRoute>
+              <Accessories />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/stories-offers"
+          element={
+            <ProtectedRoute>
+              <StoriesOffers />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/training"
+          element={
+            <ProtectedRoute>
+              <Training />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/whatsapp-analytics"
+          element={
+            <ProtectedRoute>
+              <WhatsappAnalytics />
             </ProtectedRoute>
           }
         />

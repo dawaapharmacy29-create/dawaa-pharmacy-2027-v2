@@ -1,10 +1,9 @@
-import { useMemo, type ElementType, type ReactNode } from "react";
+import { useMemo, useState, type ElementType, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
   BellRing,
   CalendarDays,
-  CheckCircle2,
   ClipboardList,
   Crown,
   FileSpreadsheet,
@@ -52,6 +51,7 @@ import {
   isInsideCurrentCycle,
   pickFirst,
 } from "@/lib/dawaa2027";
+import { formatCycleDate, getCurrentCycle, getPreviousCycle } from "@/lib/pharmacy-cycle";
 
 const cx = (...items: Array<string | false | null | undefined>) => items.filter(Boolean).join(" ");
 
@@ -130,6 +130,10 @@ function formatTime(value: unknown) {
 
 export default function ExecutiveDashboard2027() {
   const { user } = useAuth();
+  const currentCycle = useMemo(() => getCurrentCycle(), []);
+  const previousCycle = useMemo(() => getPreviousCycle(), []);
+  const [periodStart, setPeriodStart] = useState(() => formatCycleDate(currentCycle.start));
+  const [periodEnd, setPeriodEnd] = useState(() => formatCycleDate(currentCycle.end));
   const { data: invoices } = useSupabaseQuery<Record<string, unknown>>({ table: "sales_invoices", limit: 7000, realtimeEnabled: false });
   const { data: followups } = useSupabaseQuery<Record<string, unknown>>({ table: "daily_followups", limit: 1200, realtimeEnabled: true });
   const { data: requests } = useSupabaseQuery<Record<string, unknown>>({ table: "customer_requests", limit: 1200, realtimeEnabled: true });
@@ -138,9 +142,27 @@ export default function ExecutiveDashboard2027() {
   const { data: incentiveMedicines } = useSupabaseQuery<Record<string, unknown>>({ table: "incentive_medicines", limit: 1000, realtimeEnabled: true });
   const { data: tasks } = useSupabaseQuery<Record<string, unknown>>({ table: "tasks", limit: 400, realtimeEnabled: true });
   const { data: staff } = useSupabaseQuery<Record<string, unknown>>({ table: "staff", limit: 500, realtimeEnabled: true });
+  const { data: shelfTasks } = useSupabaseQuery<Record<string, unknown>>({ table: "shelf_tasks", limit: 700, realtimeEnabled: true });
+  const { data: cleaningTasks } = useSupabaseQuery<Record<string, unknown>>({ table: "branch_cleaning_tasks", limit: 700, realtimeEnabled: true });
+  const { data: inventorySessions } = useSupabaseQuery<Record<string, unknown>>({ table: "inventory_count_sessions", limit: 700, realtimeEnabled: true });
+  const { data: shortages } = useSupabaseQuery<Record<string, unknown>>({ table: "shortage_items", limit: 1000, realtimeEnabled: true });
+  const { data: supplies } = useSupabaseQuery<Record<string, unknown>>({ table: "supplies_items", limit: 1000, realtimeEnabled: true });
+  const { data: accessories } = useSupabaseQuery<Record<string, unknown>>({ table: "accessory_items", limit: 1000, realtimeEnabled: true });
+  const { data: offers } = useSupabaseQuery<Record<string, unknown>>({ table: "offers", limit: 300, realtimeEnabled: true });
+  const { data: stories } = useSupabaseQuery<Record<string, unknown>>({ table: "whatsapp_stories", limit: 500, realtimeEnabled: true });
+  const { data: trainingAssignments } = useSupabaseQuery<Record<string, unknown>>({ table: "training_assignments", limit: 1000, realtimeEnabled: true });
+  const { data: deliveryOrders } = useSupabaseQuery<Record<string, unknown>>({ table: "delivery_orders", limit: 700, realtimeEnabled: true });
 
   const model = useMemo(() => {
-    const cycleInvoices = invoices.filter((row) => isInsideCurrentCycle(getInvoiceDate(row)));
+    const periodStartDate = new Date(`${periodStart}T00:00:00`);
+    const periodEndDate = new Date(`${periodEnd}T23:59:59`);
+    const isInsideSelectedPeriod = (value: unknown) => {
+      const invoiceDate = asDate(value);
+      if (!invoiceDate) return false;
+      if (Number.isNaN(periodStartDate.getTime()) || Number.isNaN(periodEndDate.getTime())) return isInsideCurrentCycle(value);
+      return invoiceDate >= periodStartDate && invoiceDate <= periodEndDate;
+    };
+    const cycleInvoices = invoices.filter((row) => isInsideSelectedPeriod(getInvoiceDate(row)));
     const totalSales = cycleInvoices.reduce((sum, row) => sum + getInvoiceAmount(row), 0);
     const avgInvoice = cycleInvoices.length ? totalSales / cycleInvoices.length : 0;
     const uniqueCustomers = new Set(cycleInvoices.map(getInvoiceCustomer).filter(Boolean)).size;
@@ -148,6 +170,59 @@ export default function ExecutiveDashboard2027() {
     const requestOpen = requests.filter((r) => isOpenStatus(getStatus(r)));
     const tasksOpen = tasks.filter((t) => isOpenStatus(getStatus(t)));
     const pendingFollowups = followups.filter((f) => isOpenStatus(getStatus(f)));
+    const today = new Date();
+    const todayStart = new Date(today);
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(today);
+    todayEnd.setHours(23, 59, 59, 999);
+    const dueByToday = (row: Record<string, unknown>) => {
+      const due = asDate(pickFirst(row, ["due_date", "scheduled_date", "session_date", "date", "target_date"], null));
+      return Boolean(due && due <= todayEnd);
+    };
+    const dueToday = (row: Record<string, unknown>) => {
+      const due = asDate(pickFirst(row, ["due_date", "scheduled_date", "session_date", "date", "target_date"], null));
+      return Boolean(due && due >= todayStart && due <= todayEnd);
+    };
+    const isDelayed = (row: Record<string, unknown>) => {
+      const due = asDate(pickFirst(row, ["due_date", "scheduled_date", "session_date", "date", "target_date"], null));
+      return Boolean(due && due < todayStart && isOpenStatus(getStatus(row)));
+    };
+
+    const delayedShelfTasks = shelfTasks.filter(isDelayed);
+    const dueShelfTasksToday = shelfTasks.filter((row) => dueToday(row) && isOpenStatus(getStatus(row)));
+    const openCleaningTasks = cleaningTasks.filter((row) => isOpenStatus(getStatus(row)));
+    const pendingCleaningToday = cleaningTasks.filter((row) => dueByToday(row) && isOpenStatus(getStatus(row)));
+    const dueInventorySessions = inventorySessions.filter((row) => dueByToday(row) && isOpenStatus(getStatus(row)));
+    const criticalShortages = shortages.filter((row) => {
+      const status = getStatus(row).toLowerCase();
+      const priority = String(pickFirst(row, ["priority"], "")).toLowerCase();
+      return ["shortage", "unavailable", "purchase_required"].some((x) => status.includes(x)) || ["high", "critical", "urgent"].some((x) => priority.includes(x));
+    });
+    const criticalSupplies = supplies.filter((row) => {
+      const status = getStatus(row).toLowerCase();
+      const priority = String(pickFirst(row, ["priority"], "")).toLowerCase();
+      const currentQty = Number(pickFirst(row, ["current_qty"], 0));
+      const minQty = Number(pickFirst(row, ["min_qty"], 0));
+      return status.includes("shortage") || status.includes("low") || priority.includes("high") || (minQty > 0 && currentQty < minQty);
+    });
+    const accessoryDisplayIssues = accessories.filter((row) => {
+      const status = getStatus(row).toLowerCase();
+      return Boolean(pickFirst(row, ["needs_display_improvement"], false)) || status.includes("display") || status.includes("slow");
+    });
+    const activeOffers = offers.filter((row) => {
+      const status = getStatus(row).toLowerCase();
+      const start = asDate(pickFirst(row, ["start_date"], null));
+      const end = asDate(pickFirst(row, ["end_date"], null));
+      return status.includes("active") || Boolean(start && start <= todayEnd && (!end || end >= todayStart));
+    });
+    const storiesNeedReport = stories.filter((row) => {
+      const hasReport = Boolean(pickFirst(row, ["report_by", "reported_by"], ""));
+      const storyDate = asDate(pickFirst(row, ["story_date"], null));
+      return Boolean(!hasReport && storyDate && storyDate < todayStart);
+    });
+    const pendingTraining = trainingAssignments.filter((row) => isOpenStatus(getStatus(row)));
+    const openDelivery = deliveryOrders.filter((row) => isOpenStatus(getStatus(row)));
+    const delayedDelivery = deliveryOrders.filter(isDelayed);
 
     const byDoctor = new Map<string, { name: string; sales: number; invoices: number; customers: Set<string> }>();
     cycleInvoices.forEach((row) => {
@@ -225,6 +300,19 @@ export default function ExecutiveDashboard2027() {
       { label: "طلبات قيد التنفيذ", sub: "طلبات عملاء مفتوحة", count: requestOpen.length, tone: "info", icon: PackageSearch, route: "/customer-requests" },
       { label: "أدوية راكدة", sub: "تحتاج إجراء سريع", count: stagnant.length, tone: "success", icon: Package, route: "/stagnant-medicines" },
     ];
+    const operationsPriorities = [
+      { label: "متابعات عاجلة", count: pendingFollowups.length, icon: AlertTriangle, tone: "danger" as const, route: "/customer-service" },
+      { label: "طلبات عملاء مفتوحة", count: requestOpen.length, icon: PackageSearch, tone: "info" as const, route: "/customer-requests" },
+      { label: "تنظيم رفوف متأخر", count: delayedShelfTasks.length || dueShelfTasksToday.length, icon: ClipboardList, tone: delayedShelfTasks.length ? "danger" as const : "warning" as const, route: "/shelf-organization" },
+      { label: "نظافة لم تغلق", count: pendingCleaningToday.length || openCleaningTasks.length, icon: ShieldCheck, tone: pendingCleaningToday.length ? "warning" as const : "success" as const, route: "/branch-cleaning" },
+      { label: "جرد مستحق", count: dueInventorySessions.length, icon: FileSpreadsheet, tone: dueInventorySessions.length ? "warning" as const : "success" as const, route: "/inventory-counts" },
+      { label: "نواقص حرجة", count: criticalShortages.length, icon: Package, tone: criticalShortages.length ? "danger" as const : "success" as const, route: "/shortages" },
+      { label: "مستلزمات ناقصة", count: criticalSupplies.length, icon: PackageSearch, tone: criticalSupplies.length ? "danger" as const : "success" as const, route: "/supplies" },
+      { label: "إكسسوار يحتاج عرض", count: accessoryDisplayIssues.length, icon: Star, tone: accessoryDisplayIssues.length ? "warning" as const : "success" as const, route: "/accessories" },
+      { label: "استوريز تحتاج تقرير", count: storiesNeedReport.length, icon: BellRing, tone: storiesNeedReport.length ? "warning" as const : "success" as const, route: "/stories-offers" },
+      { label: "تدريبات معلقة", count: pendingTraining.length, icon: Crown, tone: pendingTraining.length ? "warning" as const : "success" as const, route: "/training" },
+      { label: "دليفري متأخر", count: delayedDelivery.length || openDelivery.length, icon: MapPin, tone: delayedDelivery.length ? "danger" as const : "info" as const, route: "/delivery" },
+    ];
 
     return {
       cycleInvoices,
@@ -247,9 +335,12 @@ export default function ExecutiveDashboard2027() {
       listPercent,
       customerRating,
       topAlerts,
+      operationsPriorities,
+      activeOffers,
+      periodLabel: `${periodStart} → ${periodEnd}`,
       staffCount: staff.length,
     };
-  }, [invoices, followups, requests, transactions, stagnant, incentiveMedicines, tasks, staff]);
+  }, [invoices, followups, requests, transactions, stagnant, incentiveMedicines, tasks, staff, shelfTasks, cleaningTasks, inventorySessions, shortages, supplies, accessories, offers, stories, trainingAssignments, deliveryOrders, periodStart, periodEnd]);
 
   return (
     <div className="dawaa-executive-dashboard space-y-4" dir="rtl">
@@ -263,7 +354,47 @@ export default function ExecutiveDashboard2027() {
                 <Sparkles className="h-4 w-4" /> {DAWAA_2027_NAME}
               </div>
               <h1 className="mt-4 text-3xl font-black text-white md:text-4xl">ملخص الدورة الحالية</h1>
-              <p className="mt-2 text-sm font-semibold text-teal-100/90">{currentCycleText()} · مركز قيادة موحد لكل المبيعات والعملاء والمخزون والحوافز</p>
+              <p className="mt-2 text-sm font-semibold text-teal-100/90">{model.periodLabel || currentCycleText()} · مركز قيادة موحد لكل المبيعات والعملاء والمخزون والحوافز</p>
+              <div className="mt-4 flex flex-wrap items-end gap-2">
+                <label className="grid gap-1 text-xs font-bold text-teal-50/90">
+                  من تاريخ
+                  <input
+                    type="date"
+                    value={periodStart}
+                    onChange={(event) => setPeriodStart(event.target.value)}
+                    className="h-10 rounded-xl border border-teal-300/20 bg-slate-950/35 px-3 text-sm font-black text-white outline-none focus:border-teal-200"
+                  />
+                </label>
+                <label className="grid gap-1 text-xs font-bold text-teal-50/90">
+                  إلى تاريخ
+                  <input
+                    type="date"
+                    value={periodEnd}
+                    onChange={(event) => setPeriodEnd(event.target.value)}
+                    className="h-10 rounded-xl border border-teal-300/20 bg-slate-950/35 px-3 text-sm font-black text-white outline-none focus:border-teal-200"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPeriodStart(formatCycleDate(currentCycle.start));
+                    setPeriodEnd(formatCycleDate(currentCycle.end));
+                  }}
+                  className="h-10 rounded-xl border border-teal-300/25 bg-teal-300/10 px-3 text-xs font-black text-teal-50 transition hover:bg-teal-300/20"
+                >
+                  الدورة الحالية
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPeriodStart(formatCycleDate(previousCycle.start));
+                    setPeriodEnd(formatCycleDate(previousCycle.end));
+                  }}
+                  className="h-10 rounded-xl border border-white/15 bg-white/10 px-3 text-xs font-black text-white transition hover:bg-white/15"
+                >
+                  الدورة السابقة
+                </button>
+              </div>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <Link to="/analytics" className="rounded-2xl border border-teal-300/20 bg-teal-300/10 px-4 py-3 text-sm font-extrabold text-teal-100 transition hover:bg-teal-300/20">عرض التقرير التفصيلي</Link>
@@ -340,12 +471,11 @@ export default function ExecutiveDashboard2027() {
           </div>
         </Panel>
 
-        <Panel title="المهام المفتوحة" link="/operations-center" className="xl:col-span-1">
-          <div className="space-y-3">
-            <TaskChip count={model.pendingFollowups.length} label="متابعات عاجلة" icon={AlertTriangle} tone="danger" />
-            <TaskChip count={model.tasksOpen.length} label="مهام مستحقة اليوم" icon={CalendarDays} tone="warning" />
-            <TaskChip count={model.requestOpen.length} label="طلبات قيد التنفيذ" icon={PackageSearch} tone="info" />
-            <TaskChip count={model.stagnantBuckets.reduce((s, b) => s + b.value, 0)} label="طلبات بحاجة لمراجعة" icon={CheckCircle2} tone="success" />
+        <Panel title="أولويات اليوم" link="/operations-center" className="xl:col-span-1">
+          <div className="max-h-[460px] space-y-3 overflow-y-auto pr-1">
+            {model.operationsPriorities.map((item) => (
+              <TaskChip key={item.label} {...item} />
+            ))}
           </div>
         </Panel>
       </section>
@@ -491,12 +621,14 @@ function DoctorPerformanceRow({ rank, name, sales, percent }: { rank: number; na
   </div>;
 }
 
-function TaskChip({ count, label, icon: Icon, tone }: { count: number; label: string; icon: ElementType; tone: "danger" | "warning" | "info" | "success" }) {
+function TaskChip({ count, label, icon: Icon, tone, route }: { count: number; label: string; icon: ElementType; tone: "danger" | "warning" | "info" | "success"; route?: string }) {
   const tones: Record<string, string> = { danger: "bg-rose-500/15 text-rose-300", warning: "bg-amber-500/15 text-amber-300", info: "bg-blue-500/15 text-blue-300", success: "bg-emerald-500/15 text-emerald-300" };
-  return <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.045] p-3">
+  const content = <>
     <div className="flex items-center gap-3"><span className={cx("flex h-9 w-9 items-center justify-center rounded-xl text-sm font-black", tones[tone])}>{count}</span><span className="text-sm font-bold text-white">{label}</span></div>
     <Icon className="h-5 w-5 text-slate-300" />
-  </div>;
+  </>;
+  const className = "flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.045] p-3 transition hover:border-teal-400/30";
+  return route ? <Link to={route} className={className}>{content}</Link> : <div className={className}>{content}</div>;
 }
 
 function MiniLedger({ tone, icon: Icon, label, value, hint }: { tone: "success" | "danger"; icon: ElementType; label: string; value: ReactNode; hint: string }) {

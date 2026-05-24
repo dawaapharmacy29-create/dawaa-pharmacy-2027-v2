@@ -172,9 +172,9 @@ export async function fetchSyntheticAlerts(): Promise<FeedNotification[]> {
 
   try {
     const { data: risky, error: rkErr } = await supabase
-      .from("customer_analysis")
-      .select("customer_code, name")
-      .or("retention_status.ilike.%مهدد%,retention_status.ilike.%معرض%,retention_status.ilike.%خطر%")
+      .from("daily_followups")
+      .select("id, customer_name")
+      .not("status", "in", '("completed","closed","done","مكتمل","تم","مغلق")')
       .limit(40);
 
     if (!rkErr && risky && risky.length >= 5) {

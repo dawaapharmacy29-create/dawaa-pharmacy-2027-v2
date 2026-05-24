@@ -1,5 +1,190 @@
+import { getInvoiceAmount, getInvoiceCustomer, getInvoiceDate, getInvoiceDoctor, pickFirst } from "@/lib/dawaa2027";
+
 export type CustomerClassKey = "vip" | "important" | "medium" | "normal" | "unknown";
 export type CustomerStatusKey = "new" | "active" | "at_risk" | "stopped" | "unknown";
+
+export type CustomerLike = Record<string, unknown>;
+export type InvoiceLike = Record<string, unknown>;
+
+export interface CustomerSalesMetrics {
+  totalSpent: number;
+  invoiceCount: number;
+  averageInvoice: number;
+  monthlyAverage: number;
+  firstPurchaseDate: string | null;
+  lastPurchaseDate: string | null;
+  latestInvoices: InvoiceLike[];
+  mostImportantDoctorByValue: string;
+  mostImportantDoctorByInvoiceCount: string;
+  branchRelation: string;
+  clv: number;
+}
+
+export function normalizePhone(value: unknown): string {
+  return String(value ?? "")
+    .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
+    .replace(/[^\d]/g, "")
+    .replace(/^0020/, "0")
+    .replace(/^20(?=1\d{9}$)/, "0");
+}
+
+export function normalizeText(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[أإآا]/g, "ا")
+    .replace(/[ى]/g, "ي")
+    .replace(/[ة]/g, "ه")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function firstText(row: CustomerLike, keys: string[]): string {
+  return String(pickFirst(row, keys, "") ?? "").trim();
+}
+
+function customerCode(customer: CustomerLike) {
+  return firstText(customer, ["customer_code", "code", "customer_id"]);
+}
+
+function customerPhone(customer: CustomerLike) {
+  return normalizePhone(pickFirst(customer, ["phone", "customer_phone", "phone_number", "mobile"], ""));
+}
+
+function customerName(customer: CustomerLike) {
+  return normalizeText(pickFirst(customer, ["name", "customer_name", "full_name"], ""));
+}
+
+function invoiceCode(invoice: InvoiceLike) {
+  return firstText(invoice, ["customer_code", "code", "customer_id"]);
+}
+
+function invoicePhone(invoice: InvoiceLike) {
+  return normalizePhone(pickFirst(invoice, ["customer_phone", "phone", "phone_number", "mobile"], ""));
+}
+
+function invoiceName(invoice: InvoiceLike) {
+  return normalizeText(pickFirst(invoice, ["customer_name", "name", "client_name"], getInvoiceCustomer(invoice)));
+}
+
+export function matchCustomerInvoice(customer: CustomerLike, invoice: InvoiceLike): boolean {
+  const cCode = customerCode(customer);
+  const iCode = invoiceCode(invoice);
+  if (cCode || iCode) return Boolean(cCode && iCode && cCode === iCode);
+
+  const cPhone = customerPhone(customer);
+  const iPhone = invoicePhone(invoice);
+  if (cPhone || iPhone) return Boolean(cPhone && iPhone && cPhone === iPhone);
+
+  const cName = customerName(customer);
+  const iName = invoiceName(invoice);
+  return Boolean(cName && iName && cName === iName);
+}
+
+function validDate(value: unknown): Date | null {
+  if (!value) return null;
+  const date = new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function dateOnly(value: Date | null): string | null {
+  return value ? value.toISOString().slice(0, 10) : null;
+}
+
+export function getCustomerLatestInvoices(customer: CustomerLike, invoices: InvoiceLike[], limit = 10): InvoiceLike[] {
+  return invoices
+    .filter((invoice) => matchCustomerInvoice(customer, invoice))
+    .sort((a, b) => {
+      const bd = validDate(getInvoiceDate(b))?.getTime() ?? 0;
+      const ad = validDate(getInvoiceDate(a))?.getTime() ?? 0;
+      return bd - ad;
+    })
+    .slice(0, limit);
+}
+
+export function getMostImportantDoctorByValue(customer: CustomerLike, invoices: InvoiceLike[]): string {
+  return getCustomerMetrics(customer, invoices).mostImportantDoctorByValue;
+}
+
+export function getCustomerMetrics(customer: CustomerLike, invoices: InvoiceLike[]): CustomerSalesMetrics {
+  const matched = invoices.filter((invoice) => matchCustomerInvoice(customer, invoice));
+  if (!matched.length) {
+    return {
+      totalSpent: 0,
+      invoiceCount: 0,
+      averageInvoice: 0,
+      monthlyAverage: 0,
+      firstPurchaseDate: null,
+      lastPurchaseDate: null,
+      latestInvoices: [],
+      mostImportantDoctorByValue: "غير محدد",
+      mostImportantDoctorByInvoiceCount: "غير محدد",
+      branchRelation: "غير محدد",
+      clv: 0,
+    };
+  }
+
+  const dated = matched
+    .map((invoice) => ({ invoice, date: validDate(getInvoiceDate(invoice)), amount: getInvoiceAmount(invoice) }))
+    .filter((item) => item.amount > 0);
+
+  const totalSpent = dated.reduce((sum, item) => sum + item.amount, 0);
+  const invoiceCount = dated.length;
+  const averageInvoice = invoiceCount ? totalSpent / invoiceCount : 0;
+  const sortedDates = dated.map((item) => item.date).filter(Boolean).sort((a, b) => a!.getTime() - b!.getTime()) as Date[];
+  const firstDate = sortedDates[0] || null;
+  const lastDate = sortedDates[sortedDates.length - 1] || null;
+  const activeMonths = firstDate && lastDate
+    ? Math.max(1, (lastDate.getFullYear() - firstDate.getFullYear()) * 12 + (lastDate.getMonth() - firstDate.getMonth()) + 1)
+    : 1;
+  const monthlyAverage = totalSpent / activeMonths;
+
+  const doctors = new Map<string, { value: number; count: number }>();
+  const branches = new Map<string, number>();
+  for (const item of dated) {
+    const doctor = getInvoiceDoctor(item.invoice) || "غير محدد";
+    const doctorStats = doctors.get(doctor) || { value: 0, count: 0 };
+    doctorStats.value += item.amount;
+    doctorStats.count += 1;
+    doctors.set(doctor, doctorStats);
+
+    const branch = String(pickFirst(item.invoice, ["branch", "branch_name"], "غير محدد") || "غير محدد");
+    branches.set(branch, (branches.get(branch) || 0) + 1);
+  }
+
+  const doctorByValue = [...doctors.entries()].sort((a, b) => b[1].value - a[1].value)[0]?.[0] || "غير محدد";
+  const doctorByCount = [...doctors.entries()].sort((a, b) => b[1].count - a[1].count)[0]?.[0] || "غير محدد";
+  const branchRelation = [...branches.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "غير محدد";
+
+  return {
+    totalSpent,
+    invoiceCount,
+    averageInvoice,
+    monthlyAverage,
+    firstPurchaseDate: dateOnly(firstDate),
+    lastPurchaseDate: dateOnly(lastDate),
+    latestInvoices: getCustomerLatestInvoices(customer, invoices, 10),
+    mostImportantDoctorByValue: doctorByValue,
+    mostImportantDoctorByInvoiceCount: doctorByCount,
+    branchRelation,
+    clv: totalSpent + monthlyAverage * 12,
+  };
+}
+
+export function applyCustomerSalesMetrics<T extends CustomerLike>(customer: T, invoices: InvoiceLike[]): T {
+  const metrics = getCustomerMetrics(customer, invoices);
+  return {
+    ...customer,
+    avg_monthly: metrics.monthlyAverage,
+    total_purchases: metrics.totalSpent,
+    total_invoices: metrics.invoiceCount,
+    avg_invoice: metrics.averageInvoice,
+    clv: metrics.clv,
+    first_purchase: metrics.firstPurchaseDate,
+    last_purchase: metrics.lastPurchaseDate,
+  };
+}
 
 export function calcCLV(totalPurchases?: number | null, monthlyAvg?: number | null) {
   const total = Number(totalPurchases || 0);
@@ -9,7 +194,7 @@ export function calcCLV(totalPurchases?: number | null, monthlyAvg?: number | nu
     return {
       value: null,
       label: "غير كافٍ لحساب القيمة العمرية",
-      note: "لا توجد مشتريات أو متوسط شهري كافٍ.",
+      note: "لا توجد مشتريات من sales_invoices.",
     };
   }
 
