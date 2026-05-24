@@ -148,13 +148,88 @@ create table if not exists public.whatsapp_stories (
   updated_at timestamptz not null default now()
 );
 
+alter table if exists public.shortage_items
+  add column if not exists responsible_staff_id uuid,
+  add column if not exists responsible_staff_name text,
+  add column if not exists registered_by_staff_id uuid,
+  add column if not exists registered_by_staff_name text,
+  add column if not exists created_by_name text;
+
+alter table if exists public.supplies_items
+  add column if not exists responsible_staff_id uuid,
+  add column if not exists responsible_staff_name text,
+  add column if not exists weekly_checker_staff_id uuid,
+  add column if not exists weekly_checker_staff_name text,
+  add column if not exists created_by_name text;
+
+alter table if exists public.accessory_items
+  add column if not exists responsible_staff_id uuid,
+  add column if not exists responsible_staff_name text,
+  add column if not exists supplier_name text,
+  add column if not exists supplier_phone text,
+  add column if not exists created_by_name text;
+
+alter table if exists public.branch_cleaning_tasks
+  add column if not exists responsible_staff_id uuid,
+  add column if not exists responsible_staff_name text,
+  add column if not exists reviewer_staff_id uuid,
+  add column if not exists reviewer_staff_name text,
+  add column if not exists cleaning_responsible_id uuid,
+  add column if not exists cleaning_responsible_name text,
+  add column if not exists checklist jsonb not null default '{}'::jsonb,
+  add column if not exists evaluation_score numeric,
+  add column if not exists reviewed_at timestamptz,
+  add column if not exists created_by_name text;
+
+alter table if exists public.shelf_tasks
+  add column if not exists responsible_staff_id uuid,
+  add column if not exists responsible_staff_name text,
+  add column if not exists reviewer_staff_id uuid,
+  add column if not exists reviewer_staff_name text,
+  add column if not exists created_by_name text;
+
+alter table if exists public.inventory_count_sessions
+  add column if not exists responsible_staff_id uuid,
+  add column if not exists responsible_staff_name text,
+  add column if not exists reviewer_staff_id uuid,
+  add column if not exists reviewer_staff_name text,
+  add column if not exists created_by_name text;
+
+create table if not exists public.branch_cleaning_responsibles (
+  id uuid primary key default gen_random_uuid(),
+  branch text not null,
+  cleaning_responsible_id uuid,
+  cleaning_responsible_name text not null,
+  reviewer_staff_id uuid,
+  reviewer_staff_name text,
+  active boolean not null default true,
+  notes text,
+  created_by uuid,
+  created_by_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.supplier_directory (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  category text,
+  phone text,
+  contact_person text,
+  notes text,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 do $$
 declare
   t text;
 begin
   foreach t in array array[
     'customers','employee_transactions','customer_request_sources','manager_role_assignments',
-    'manager_performance_reviews','customer_requests','offers','whatsapp_stories'
+    'manager_performance_reviews','customer_requests','offers','whatsapp_stories',
+    'branch_cleaning_responsibles','supplier_directory'
   ]
   loop
     if exists (select 1 from information_schema.tables where table_schema='public' and table_name=t) then
@@ -178,6 +253,8 @@ begin
   create index if not exists idx_customer_request_sources_active on public.customer_request_sources(is_active);
   create index if not exists idx_manager_role_assignments_role on public.manager_role_assignments(role_key, active);
   create index if not exists idx_manager_reviews_cycle on public.manager_performance_reviews(month_cycle, role_key);
+  create index if not exists idx_branch_cleaning_responsibles_branch on public.branch_cleaning_responsibles(branch, active);
+  create index if not exists idx_supplier_directory_name on public.supplier_directory(name, active);
 end $$;
 
 insert into storage.buckets (id, name, public)

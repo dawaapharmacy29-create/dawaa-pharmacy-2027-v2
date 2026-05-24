@@ -7,6 +7,7 @@ import {
   Users,
   CheckCircle,
   Clock,
+  Trash2,
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -372,6 +373,83 @@ export default function PenaltyIncentiveManagement() {
     refetchStaff();
   };
 
+  const handleSetPending = async (row: PointRecord) => {
+    if (!canManage) return;
+    const { error } = await supabase
+      .from(TABLES.employeeTransactions)
+      .update({ status: "pending" })
+      .eq("id", row.id);
+
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+
+    try {
+      const profile = getCurrentUserProfile();
+      await logActivity({
+        action: "إرجاع سجل نقاط للمراجعة",
+        module: "الجزاءات والحوافز",
+        target_type: "point_record",
+        target_id: row.id,
+        user_id: profile.id,
+        user_name: user?.name,
+        user_role: user?.role,
+        branch_name: row.branch,
+        details: {
+          staffName: row.employee_name,
+          reason: pointRecordNote(row),
+          status: "pending",
+        },
+      });
+    } catch {
+      // log failure is non-critical
+    }
+
+    toast.success("تم تحويل السجل إلى قيد المراجعة");
+    refetchRecords();
+  };
+
+  const handleDeleteRecord = async (row: PointRecord) => {
+    if (!canManage) return;
+    const ok = window.confirm(`هل تريد مسح سجل "${pointRecordNote(row)}"؟`);
+    if (!ok) return;
+
+    const { error } = await supabase
+      .from(TABLES.employeeTransactions)
+      .delete()
+      .eq("id", row.id);
+
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+
+    try {
+      const profile = getCurrentUserProfile();
+      await logActivity({
+        action: "مسح سجل نقاط",
+        module: "الجزاءات والحوافز",
+        target_type: "point_record",
+        target_id: row.id,
+        user_id: profile.id,
+        user_name: user?.name,
+        user_role: user?.role,
+        branch_name: row.branch,
+        details: {
+          staffName: row.employee_name,
+          reason: pointRecordNote(row),
+        },
+      });
+    } catch {
+      // log failure is non-critical
+    }
+
+    toast.success("تم مسح السجل");
+    refetchRecords();
+    refetchStaff();
+  };
+
   // ── Render ──────────────────────────────────────────────────────────────
 
   return (
@@ -558,8 +636,8 @@ export default function PenaltyIncentiveManagement() {
                     </td>
                     {canManage && (
                       <td>
-                        {st === "pending" ? (
-                          <div className="flex gap-1">
+                        <div className="flex flex-wrap gap-1">
+                          {st !== "approved" && (
                             <button
                               type="button"
                               onClick={(event) => { event.stopPropagation(); handleApprove(row, true); }}
@@ -567,6 +645,8 @@ export default function PenaltyIncentiveManagement() {
                             >
                               اعتماد
                             </button>
+                          )}
+                          {st !== "rejected" && (
                             <button
                               type="button"
                               onClick={(event) => { event.stopPropagation(); handleApprove(row, false); }}
@@ -574,10 +654,26 @@ export default function PenaltyIncentiveManagement() {
                             >
                               رفض
                             </button>
-                          </div>
-                        ) : (
-                          <span className="text-slate-600 text-xs">—</span>
-                        )}
+                          )}
+                          {st !== "pending" && (
+                            <button
+                              type="button"
+                              onClick={(event) => { event.stopPropagation(); handleSetPending(row); }}
+                              className="px-2 py-1 rounded text-xs bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 transition-colors"
+                            >
+                              قيد المراجعة
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={(event) => { event.stopPropagation(); handleDeleteRecord(row); }}
+                            className="inline-flex items-center gap-1 rounded bg-slate-500/10 px-2 py-1 text-xs text-slate-300 transition-colors hover:bg-red-500/15 hover:text-red-300"
+                            title="مسح السجل"
+                          >
+                            <Trash2 size={13} />
+                            مسح
+                          </button>
+                        </div>
                       </td>
                     )}
                   </tr>

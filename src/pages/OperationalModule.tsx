@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useState, type ElementType } from "rea
 import { AlertTriangle, CheckCircle2, ClipboardList, Filter, Loader2, Plus, RefreshCw, Save, Search } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth, getSafeCurrentUserId } from "@/hooks/useAuth";
-import { logActivity } from "@/hooks/useSupabaseQuery";
+import { logActivity, useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { supabase } from "@/lib/supabase";
 import { BRANCHES } from "@/lib/constants";
+import { mergeStaffChoices, type StaffChoice } from "@/lib/staffFallback";
 
-type FieldKind = "text" | "number" | "date" | "select" | "textarea";
+type FieldKind = "text" | "number" | "date" | "select" | "textarea" | "staff" | "checklist";
 
 interface ModuleField {
   key: string;
@@ -15,6 +16,8 @@ interface ModuleField {
   options?: string[];
   required?: boolean;
   placeholder?: string;
+  staffIdKey?: string;
+  checklistItems?: string[];
 }
 
 interface ModuleConfig {
@@ -77,6 +80,51 @@ const REQUEST_STAGES = [
 const BRANCH_OPTIONS = [...BRANCHES, "كل الفروع"];
 const STAFF_PLACEHOLDER = "اسم المسؤول";
 
+const SHORTAGE_CATEGORIES = [
+  "أدوية ناقصة حرجة",
+  "أدوية مزمنة",
+  "سكر وضغط",
+  "أدوية أطفال",
+  "مضادات حيوية",
+  "مسكنات",
+  "جلدية",
+  "حقن وأمبولات",
+  "أدوية مستوردة",
+  "بدائل مطلوبة",
+  "أصناف روشتات متكررة",
+  "أخرى",
+];
+
+const DEFAULT_SUPPLY_ITEMS = [
+  "سرنجة 3 سم", "سرنجة 5 سم", "سرنجة 10 سم", "سرنجة أنسولين", "كانيولا صفراء", "كانيولا زرقاء",
+  "كانيولا وردي", "محلول ملح 500", "محلول جلوكوز 5%", "قطن طبي", "شاش معقم", "شاش فازلين",
+  "بلاستر طبي", "بلاستر ورقي", "دريسينج شفاف", "رباط ضاغط", "قفازات لاتكس", "قفازات نيتريل",
+  "كمامات طبية", "ترمومتر", "جهاز قياس ضغط", "شرائط قياس سكر", "لانست", "كحول 70%",
+  "مطهر بيتادين", "محلول عدسات", "قساطر بول", "أكياس بول", "خافض لسان", "أكياس نفايات طبية",
+];
+
+const ACCESSORY_SUPPLIERS = [
+  "مندوب العناية الشخصية",
+  "شركة مستلزمات أطفال",
+  "مورد منتجات التجميل",
+  "مورد الشعر والبشرة",
+  "مورد المنتجات الموسمية",
+  "مخزن الفرع",
+  "مورد آخر",
+];
+
+const CLEANING_CHECKLIST = [
+  "تنظيف الأرضيات",
+  "ترتيب الرفوف",
+  "تنظيف منطقة الكاشير",
+  "التخلص من الكراتين",
+  "تنظيف الواجهة",
+  "تنظيف منطقة المعمل",
+  "مراجعة الثلاجة",
+  "ترتيب المخزن",
+  "رفع ملاحظات للإدارة إن وجدت",
+];
+
 const configs: Record<string, ModuleConfig> = {
   shelf: {
     title: "تنظيم الأدوية والرفوف",
@@ -92,7 +140,7 @@ const configs: Record<string, ModuleConfig> = {
     defaultStatus: "pending",
     statuses: COMMON_STATUSES,
     dashboardHint: "تظهر المهام المتأخرة والمستحقة اليوم في لوحة القيادة.",
-    defaultValues: { title: "", branch: BRANCHES[0], zone: "منطقة الأقراص والكبسول", section: "", alphabet_from: "", alphabet_to: "", responsible_staff_name: "", due_date: new Date().toISOString().slice(0, 10), frequency: "one_time", status: "pending", notes: "" },
+    defaultValues: { title: "", branch: BRANCHES[0], zone: "منطقة الأقراص والكبسول", section: "", alphabet_from: "", alphabet_to: "", responsible_staff_name: "", responsible_staff_id: "", reviewer_staff_name: "", reviewer_staff_id: "", due_date: new Date().toISOString().slice(0, 10), frequency: "one_time", status: "pending", notes: "" },
     fields: [
       { key: "title", label: "عنوان المهمة", required: true, placeholder: "ترتيب الأقراص من A إلى H" },
       { key: "branch", label: "الفرع", kind: "select", options: BRANCH_OPTIONS, required: true },
@@ -100,7 +148,8 @@ const configs: Record<string, ModuleConfig> = {
       { key: "section", label: "القسم/الدرج" },
       { key: "alphabet_from", label: "من حرف" },
       { key: "alphabet_to", label: "إلى حرف" },
-      { key: "responsible_staff_name", label: "المسؤول", placeholder: STAFF_PLACEHOLDER },
+      { key: "responsible_staff_name", label: "المسؤول", kind: "staff", staffIdKey: "responsible_staff_id", placeholder: STAFF_PLACEHOLDER },
+      { key: "reviewer_staff_name", label: "الدكتور المراجع", kind: "staff", staffIdKey: "reviewer_staff_id", placeholder: "اختر المراجع" },
       { key: "due_date", label: "تاريخ الاستحقاق", kind: "date" },
       { key: "frequency", label: "التكرار", kind: "select", options: ["one_time", "daily", "weekly", "monthly"] },
       { key: "notes", label: "ملاحظات", kind: "textarea" },
@@ -121,12 +170,14 @@ const configs: Record<string, ModuleConfig> = {
     defaultStatus: "pending",
     statuses: COMMON_STATUSES,
     dashboardHint: "أي فرع لم يغلق مهمة النظافة يظهر كتنبيه يومي.",
-    defaultValues: { branch: BRANCHES[0], task_date: new Date().toISOString().slice(0, 10), shift: "morning", responsible_staff_name: "", status: "pending", notes: "" },
+    defaultValues: { branch: BRANCHES[0], task_date: new Date().toISOString().slice(0, 10), date: new Date().toISOString().slice(0, 10), shift: "morning", responsible_staff_name: "", responsible_staff_id: "", reviewer_staff_name: "", reviewer_staff_id: "", checklist: "{}", status: "pending", notes: "" },
     fields: [
       { key: "branch", label: "الفرع", kind: "select", options: BRANCH_OPTIONS, required: true },
       { key: "task_date", label: "التاريخ", kind: "date" },
       { key: "shift", label: "الشيفت", kind: "select", options: ["morning", "evening", "closing"] },
-      { key: "responsible_staff_name", label: "المسؤول" },
+      { key: "responsible_staff_name", label: "مسؤول النظافة", kind: "staff", staffIdKey: "responsible_staff_id" },
+      { key: "reviewer_staff_name", label: "الدكتور المراجع اليومي", kind: "staff", staffIdKey: "reviewer_staff_id" },
+      { key: "checklist", label: "جدول النظافة اليومي", kind: "checklist", checklistItems: CLEANING_CHECKLIST },
       { key: "notes", label: "ملاحظات", kind: "textarea" },
     ],
     searchKeys: ["branch", "responsible_staff_name", "shift", "notes"],
@@ -149,14 +200,15 @@ const configs: Record<string, ModuleConfig> = {
       { value: "closed", label: "مغلق", tone: STATUS_TONES.completed },
     ],
     dashboardHint: "فروق الجرد الخطيرة والجلسات المتأخرة تظهر للمدير.",
-    defaultValues: { title: "", branch: BRANCHES[0], count_type: "جرد قسم", alphabet_from: "", alphabet_to: "", responsible_staff_name: "", due_date: new Date().toISOString().slice(0, 10), status: "planned", notes: "" },
+    defaultValues: { title: "", branch: BRANCHES[0], count_type: "جرد قسم", alphabet_from: "", alphabet_to: "", responsible_staff_name: "", responsible_staff_id: "", reviewer_staff_name: "", reviewer_staff_id: "", due_date: new Date().toISOString().slice(0, 10), status: "planned", notes: "" },
     fields: [
       { key: "title", label: "عنوان الجرد", required: true },
       { key: "branch", label: "الفرع", kind: "select", options: BRANCH_OPTIONS, required: true },
       { key: "count_type", label: "نوع الجرد", kind: "select", options: ["جرد كامل", "جرد قسم", "جرد أصناف محددة", "جرد نطاق حروف", "جرد رواكد", "جرد نواقص", "جرد أدوية لستة"] },
       { key: "alphabet_from", label: "من حرف" },
       { key: "alphabet_to", label: "إلى حرف" },
-      { key: "responsible_staff_name", label: "المسؤول" },
+      { key: "responsible_staff_name", label: "المسؤول", kind: "staff", staffIdKey: "responsible_staff_id" },
+      { key: "reviewer_staff_name", label: "الدكتور المراجع", kind: "staff", staffIdKey: "reviewer_staff_id" },
       { key: "due_date", label: "تاريخ الاستحقاق", kind: "date" },
       { key: "notes", label: "ملاحظات", kind: "textarea" },
     ],
@@ -182,7 +234,7 @@ const configs: Record<string, ModuleConfig> = {
       { value: "resolved", label: "تم الحل", tone: STATUS_TONES.resolved },
     ],
     dashboardHint: "الأصناف الحرجة تظهر ضمن أولويات اليوم.",
-    defaultValues: { item_name: "", branch: BRANCHES[0], current_qty: 0, min_qty: 1, max_qty: 0, requested_qty: 1, priority: "medium", category: "", status: "shortage", responsible_staff_name: "", notes: "" },
+    defaultValues: { item_name: "", branch: BRANCHES[0], current_qty: 0, min_qty: 1, max_qty: 0, requested_qty: 1, priority: "medium", category: SHORTAGE_CATEGORIES[0], status: "shortage", responsible_staff_name: "", responsible_staff_id: "", registered_by_staff_id: "", registered_by_staff_name: "", notes: "" },
     fields: [
       { key: "item_name", label: "اسم الصنف", required: true },
       { key: "branch", label: "الفرع", kind: "select", options: BRANCH_OPTIONS },
@@ -190,14 +242,14 @@ const configs: Record<string, ModuleConfig> = {
       { key: "min_qty", label: "الحد الأدنى", kind: "number" },
       { key: "requested_qty", label: "الكمية المطلوبة", kind: "number" },
       { key: "priority", label: "الأولوية", kind: "select", options: ["high", "medium", "low"] },
-      { key: "category", label: "التصنيف" },
-      { key: "responsible_staff_name", label: "المسؤول" },
+      { key: "category", label: "التصنيف", kind: "select", options: SHORTAGE_CATEGORIES },
+      { key: "responsible_staff_name", label: "المسؤول", kind: "staff", staffIdKey: "responsible_staff_id" },
       { key: "notes", label: "ملاحظات", kind: "textarea" },
     ],
     searchKeys: ["item_name", "branch", "category", "supplier", "notes"],
   },
-  supplies: stockConfig("المستلزمات", "/supplies", "supplies_items", "item_name", ["حقن وسرنجات", "كانيولات ومحاليل", "قطن وشاش", "بلاستر ودريسينج", "قساطر", "مستلزمات جروح", "جوانتيات وكمامات", "مستلزمات قياس", "أخرى"]),
-  accessories: stockConfig("الإكسسوار", "/accessories", "accessory_items", "item_name", ["عناية شخصية", "مستلزمات أطفال", "منتجات تجميل", "شعر وبشرة", "منتجات موسمية", "منتجات عرض", "منتجات بطيئة الحركة", "أخرى"]),
+  supplies: stockConfig("المستلزمات", "/supplies", "supplies_items", "item_name", ["حقن وسرنجات", "كانيولات ومحاليل", "قطن وشاش", "بلاستر ودريسينج", "قساطر", "مستلزمات جروح", "جوانتيات وكمامات", "مستلزمات قياس", "أخرى"], { itemOptions: DEFAULT_SUPPLY_ITEMS, weeklyChecker: true }),
+  accessories: stockConfig("الإكسسوار", "/accessories", "accessory_items", "item_name", ["عناية شخصية", "مستلزمات أطفال", "منتجات تجميل", "شعر وبشرة", "منتجات موسمية", "منتجات عرض", "منتجات بطيئة الحركة", "أخرى"], { supplierOptions: ACCESSORY_SUPPLIERS }),
   stories: {
     title: "الاستوريز والعروض",
     route: "/stories-offers",
@@ -254,7 +306,20 @@ const configs: Record<string, ModuleConfig> = {
   },
 };
 
-function stockConfig(title: string, route: string, table: string, primaryField: string, categories: string[]): ModuleConfig {
+function stockConfig(
+  title: string,
+  route: string,
+  table: string,
+  primaryField: string,
+  categories: string[],
+  options: { itemOptions?: string[]; supplierOptions?: string[]; weeklyChecker?: boolean } = {},
+): ModuleConfig {
+  const itemField: ModuleField = options.itemOptions?.length
+    ? { key: "item_name", label: "اسم الصنف", kind: "select", options: options.itemOptions, required: true }
+    : { key: "item_name", label: "اسم الصنف", required: true };
+  const supplierField: ModuleField = options.supplierOptions?.length
+    ? { key: "supplier", label: "المورد", kind: "select", options: options.supplierOptions }
+    : { key: "supplier", label: "المورد" };
   return {
     title,
     route,
@@ -272,18 +337,20 @@ function stockConfig(title: string, route: string, table: string, primaryField: 
       { value: "needs_review", label: "يحتاج مراجعة", tone: STATUS_TONES.needs_review },
     ],
     dashboardHint: `أي نقص حرج في ${title} يظهر في لوحة القيادة.`,
-    defaultValues: { item_name: "", category: categories[0], branch: BRANCHES[0], current_qty: 0, min_qty: 1, max_qty: 0, requested_qty: 0, status: "available", supplier: "", notes: "" },
+    defaultValues: { item_name: options.itemOptions?.[0] || "", category: categories[0], branch: BRANCHES[0], current_qty: 0, min_qty: 1, max_qty: 0, requested_qty: 0, status: "available", supplier: options.supplierOptions?.[0] || "", weekly_checker_staff_name: "", weekly_checker_staff_id: "", responsible_staff_name: "", responsible_staff_id: "", notes: "" },
     fields: [
-      { key: "item_name", label: "اسم الصنف", required: true },
+      itemField,
       { key: "category", label: "التصنيف", kind: "select", options: categories },
       { key: "branch", label: "الفرع", kind: "select", options: BRANCH_OPTIONS },
       { key: "current_qty", label: "الكمية الحالية", kind: "number" },
       { key: "min_qty", label: "الحد الأدنى", kind: "number" },
       { key: "max_qty", label: "الحد الأقصى", kind: "number" },
-      { key: "supplier", label: "المورد" },
+      ...(options.weeklyChecker ? [{ key: "weekly_checker_staff_name", label: "مسؤول المراجعة الأسبوعية", kind: "staff" as const, staffIdKey: "weekly_checker_staff_id" }] : []),
+      { key: "responsible_staff_name", label: "المسؤول", kind: "staff", staffIdKey: "responsible_staff_id" },
+      supplierField,
       { key: "notes", label: "ملاحظات", kind: "textarea" },
     ],
-    searchKeys: ["item_name", "category", "branch", "supplier", "notes"],
+    searchKeys: ["item_name", "category", "branch", "supplier", "weekly_checker_staff_name", "responsible_staff_name", "notes"],
   };
 }
 
@@ -302,6 +369,16 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
   const [branchFilter, setBranchFilter] = useState("الكل");
   const [statusFilter, setStatusFilter] = useState("الكل");
   const [form, setForm] = useState<Record<string, string | number | boolean | null>>(config.defaultValues);
+  const { data: staffRows } = useSupabaseQuery<StaffChoice>({
+    table: "staff",
+    orderBy: { column: "name", ascending: true },
+    realtimeEnabled: false,
+  });
+
+  const staffOptions = useMemo(() => mergeStaffChoices(staffRows), [staffRows]);
+  const currentStaff = useMemo(() => {
+    return staffOptions.find((staff) => staff.id === user?.staffId || staff.id === user?.id || staff.name === user?.name);
+  }, [staffOptions, user?.id, user?.name, user?.staffId]);
 
   const loadRows = useCallback(async () => {
     setLoading(true);
@@ -355,8 +432,16 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
     setSaving(true);
     const payload = {
       ...form,
+      ...(typeof form.checklist === "string" ? { checklist: safeJsonObject(form.checklist) } : {}),
       [config.statusField]: form[config.statusField] ?? config.defaultStatus,
       created_by: getSafeCurrentUserId(),
+      created_by_name: user?.name || "النظام",
+      ...(config.table === "shortage_items"
+        ? {
+            registered_by_staff_id: currentStaff?.id || user?.staffId || user?.id || null,
+            registered_by_staff_name: currentStaff?.name || user?.name || "غير محدد",
+          }
+        : {}),
     };
     const { error: saveError } = await supabase.from(config.table).insert(payload);
     if (saveError) {
@@ -418,7 +503,14 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
         </div>
         <div className="grid gap-3 md:grid-cols-3">
           {config.fields.map((field) => (
-            <Field key={field.key} field={field} value={form[field.key]} onChange={(value) => setForm((current) => ({ ...current, [field.key]: value }))} />
+            <Field
+              key={field.key}
+              field={field}
+              value={form[field.key]}
+              staffOptions={staffOptions}
+              form={form}
+              onChange={(value, extra) => setForm((current) => ({ ...current, [field.key]: value, ...(extra || {}) }))}
+            />
           ))}
         </div>
         <button type="button" onClick={submit} disabled={saving} className="btn-primary mt-4 flex items-center gap-2 px-4 py-2 text-sm">
@@ -492,18 +584,70 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
   );
 }
 
-function Field({ field, value, onChange }: { field: ModuleField; value: unknown; onChange: (value: string | number | boolean) => void }) {
+function Field({
+  field,
+  value,
+  onChange,
+  staffOptions,
+  form,
+}: {
+  field: ModuleField;
+  value: unknown;
+  staffOptions: StaffChoice[];
+  form: Record<string, string | number | boolean | null>;
+  onChange: (value: string | number | boolean, extra?: Record<string, string>) => void;
+}) {
   const kind = field.kind || "text";
   const common = "input-dark";
+  const selectedStaffId = field.staffIdKey ? String(form[field.staffIdKey] || "") : "";
+  const selectedByName = staffOptions.find((staff) => staff.name === String(value || ""));
+  const staffSelectValue = selectedStaffId || selectedByName?.id || "";
+  const checklistValue = typeof value === "string" ? safeJsonObject(value) : {};
   return (
-    <label className={`text-xs text-slate-300 space-y-1 ${kind === "textarea" ? "md:col-span-3" : ""}`}>
+    <label className={`text-xs text-slate-300 space-y-1 ${kind === "textarea" || kind === "checklist" ? "md:col-span-3" : ""}`}>
       <span>{field.label}{field.required ? " *" : ""}</span>
       {kind === "select" ? (
         <select className={common} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)}>
           {(field.options || []).map((option) => <option key={option} value={option}>{option}</option>)}
         </select>
+      ) : kind === "staff" ? (
+        <select
+          className={common}
+          value={staffSelectValue}
+          onChange={(event) => {
+            const selected = staffOptions.find((staff) => staff.id === event.target.value);
+            onChange(selected?.name || "", field.staffIdKey ? { [field.staffIdKey]: selected?.id || "" } : undefined);
+          }}
+        >
+          <option value="">{field.placeholder || "اختر من قائمة الدكاترة"}</option>
+          {staffOptions.map((staff) => (
+            <option key={staff.id} value={staff.id}>
+              {staff.name} — {staff.branch || "كل الفروع"}{staff.role ? ` — ${staff.role}` : ""}
+            </option>
+          ))}
+        </select>
       ) : kind === "textarea" ? (
         <textarea className={common} value={String(value ?? "")} onChange={(event) => onChange(event.target.value)} placeholder={field.placeholder} />
+      ) : kind === "checklist" ? (
+        <div className="grid gap-2 rounded-xl border border-[#2d4063] bg-[#162847] p-3 md:grid-cols-3">
+          {(field.checklistItems || []).map((item) => {
+            const checked = Boolean((checklistValue as Record<string, unknown>)[item]);
+            return (
+              <label key={item} className="flex items-center gap-2 rounded-lg bg-white/[0.03] px-3 py-2 text-sm text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(event) => {
+                    const next = { ...(checklistValue as Record<string, boolean>), [item]: event.target.checked };
+                    onChange(JSON.stringify(next));
+                  }}
+                  className="h-4 w-4 accent-teal-400"
+                />
+                <span>{item}</span>
+              </label>
+            );
+          })}
+        </div>
       ) : (
         <input className={common} type={kind} value={String(value ?? "")} onChange={(event) => onChange(kind === "number" ? Number(event.target.value) : event.target.value)} placeholder={field.placeholder} />
       )}
@@ -525,6 +669,15 @@ function formatArabicDate(value: unknown) {
   const date = new Date(String(value));
   if (Number.isNaN(date.getTime())) return String(value);
   return date.toLocaleDateString("ar-EG", { year: "numeric", month: "short", day: "numeric" });
+}
+
+function safeJsonObject(value: string) {
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
 }
 
 export default OperationalModulePage;
