@@ -210,6 +210,30 @@ alter table if exists public.incentive_medicines
   add column if not exists product_price numeric,
   add column if not exists unit_price numeric;
 
+alter table if exists public.offers
+  add column if not exists image_url text,
+  add column if not exists initial_qty numeric default 0,
+  add column if not exists remaining_qty numeric default 0,
+  add column if not exists boxes_dispensed numeric default 0,
+  add column if not exists sales_count integer default 0,
+  add column if not exists sales_value numeric default 0,
+  add column if not exists customer_id uuid,
+  add column if not exists customer_code text,
+  add column if not exists customer_name text,
+  add column if not exists doctor_name text,
+  add column if not exists branch text;
+
+alter table if exists public.whatsapp_stories
+  add column if not exists story_time time,
+  add column if not exists image_url text,
+  add column if not exists branch text,
+  add column if not exists doctor_name text,
+  add column if not exists boxes_dispensed numeric default 0,
+  add column if not exists customer_id uuid,
+  add column if not exists customer_code text,
+  add column if not exists customer_name text,
+  add column if not exists sales_value numeric default 0;
+
 create table if not exists public.branch_cleaning_responsibles (
   id uuid primary key default gen_random_uuid(),
   branch text not null,

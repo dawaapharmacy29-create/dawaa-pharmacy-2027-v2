@@ -6,8 +6,8 @@ import type { Customer } from "@/types/database";
 
 const DEFAULT_LIMIT = 50;
 const ALL_FILTER = "الكل";
-const PRIMARY_TABLE = "customer_analysis";
-const FALLBACK_SEARCH_COLUMNS = ["name", "phone", "customer_name", "customer_phone", "full_name", "phone_number", "mobile"];
+const PRIMARY_TABLE = "customers";
+const FALLBACK_SEARCH_COLUMNS = ["customer_code", "code", "name", "phone", "customer_name", "customer_phone", "full_name", "phone_number", "mobile"];
 type CustomerQueryBuilder = ReturnType<ReturnType<typeof supabase.from>["select"]>;
 
 export interface GetCustomersOptions {
@@ -73,6 +73,16 @@ function readFirst(record: Record<string, unknown>, keys: string[], fallback: un
   return fallback;
 }
 
+function isUuidLikeValue(value: unknown) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value ?? "").trim());
+}
+
+function cleanCustomerCode(value: unknown) {
+  const code = String(value ?? "").trim();
+  if (!code || isUuidLikeValue(code)) return null;
+  return code;
+}
+
 function normalizeArabicType(value?: string | null) {
   return value?.replace("جداً", "جدا").replace("جدًّا", "جدا") ?? "";
 }
@@ -92,10 +102,10 @@ function branchFilterValues(branch: string) {
 }
 
 function normalizeCustomer(record: Record<string, unknown>): Customer {
-  const customerCode = readFirst(record, ["customer_code", "code"], null) as string | null;
+  const customerCode = cleanCustomerCode(readFirst(record, ["customer_code", "code"], null));
   return {
     ...record,
-    id: String(readFirst(record, ["id", "customer_id", "customer_code", "phone"], "")),
+    id: String(readFirst(record, ["id", "customer_id", "phone"], customerCode || "")),
     customer_code: customerCode,
     name: String(readFirst(record, ["name", "customer_name", "full_name"], "عميل بدون اسم")),
     phone: String(readFirst(record, ["phone", "customer_phone", "phone_number", "mobile"], "")),
@@ -298,7 +308,7 @@ async function getAnalysisCustomers(options: GetCustomersOptions, limit: number,
   let query = supabase
     .from(PRIMARY_TABLE)
     .select("*", { count: "exact" })
-    .order("total_spent", { ascending: false })
+    .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
   query = applyCustomerFilters(query, options);
@@ -363,22 +373,34 @@ export async function getCustomerById(id: string) {
     throw new Error("إعدادات Supabase غير موجودة.");
   }
 
-  const { data, error } = await supabase
-    .from("customers")
-    .select("*")
-    .or(`id.eq.${id},customer_code.eq.${id},code.eq.${id}`)
-    .limit(1);
-
-  if (error) throw new Error(error.message);
-  const customer = normalizeCustomer(((data ?? []) as Record<string, unknown>[])[0] ?? {});
+  const attempts = [
+    () => supabase.from("customers").select("*").eq("id", id).limit(1),
+    () => supabase.from("customers").select("*").eq("customer_code", id).limit(1),
+    () => supabase.from("customers").select("*").eq("code", id).limit(1),
+  ];
+  let rows: Record<string, unknown>[] = [];
+  let lastError: { message?: string } | null = null;
+  for (const run of attempts) {
+    const { data, error } = await run();
+    if (error) {
+      lastError = error;
+      if (isMissingColumnError(error)) continue;
+      throw new Error(error.message);
+    }
+    rows = (data ?? []) as Record<string, unknown>[];
+    if (rows.length) break;
+  }
+  if (!rows.length && lastError && !isMissingColumnError(lastError)) throw new Error(lastError.message || "تعذر تحميل العميل");
+  const customer = normalizeCustomer(rows[0] ?? {});
   const invoices = await fetchSalesInvoices();
   return enrichCustomersWithSalesMetrics([customer], invoices)[0];
 }
 
 function getCustomerLookup(customer: Customer) {
-  const code = customer.customer_code || customer.id;
+  const code = cleanCustomerCode(customer.customer_code) || "";
+  const id = String(customer.id || "").trim();
   const phone = customer.phone || "";
-  return { code, phone };
+  return { code, id, phone };
 }
 
 export async function getCustomerDetails(customer: Customer): Promise<CustomerDetails> {
@@ -386,14 +408,21 @@ export async function getCustomerDetails(customer: Customer): Promise<CustomerDe
     throw new Error("إعدادات Supabase غير موجودة.");
   }
 
-  const { code, phone } = getCustomerLookup(customer);
+  const { code, id, phone } = getCustomerLookup(customer);
+  const followupClauses = [
+    code ? `customer_code.eq.${code}` : "",
+    code ? `customer_id.eq.${code}` : "",
+    id ? `customer_id.eq.${id}` : "",
+    phone ? `customer_phone.eq.${phone}` : "",
+    customer.name ? `customer_name.eq.${customer.name}` : "",
+  ].filter(Boolean);
 
   const [allInvoices, followupResult] = await Promise.all([
     fetchSalesInvoices(),
     supabase
       .from("daily_followups")
       .select("*")
-      .or(`customer_id.eq.${code},customer_phone.eq.${phone},customer_name.eq.${customer.name}`)
+      .or(followupClauses.join(","))
       .order("created_at", { ascending: false })
       .limit(30),
   ]);

@@ -248,6 +248,27 @@ export default function Invoices() {
     setAdminBusy(false);
   };
 
+  const deleteTableRowsInChunks = async (table: string, batchSize = 400) => {
+    let deleted = 0;
+    for (let round = 0; round < 1000; round += 1) {
+      const { data, error: selectError } = await supabase.from(table).select("id").limit(batchSize);
+      if (selectError) {
+        if (selectError.message.includes("does not exist") || selectError.message.includes("schema cache")) return deleted;
+        throw new Error(selectError.message);
+      }
+
+      const ids = (data || []).map((row) => row.id).filter(Boolean);
+      if (ids.length === 0) return deleted;
+
+      const { error: deleteError } = await supabase.from(table).delete().in("id", ids);
+      if (deleteError) throw new Error(deleteError.message);
+
+      deleted += ids.length;
+      if (ids.length < batchSize) return deleted;
+    }
+    return deleted;
+  };
+
   const deleteAllInvoices = async () => {
     if (!isAdmin || adminBusy) return;
     if (deleteConfirmText.trim() !== "مسح الفواتير") {
@@ -256,21 +277,21 @@ export default function Invoices() {
     }
 
     setAdminBusy(true);
-    const { error } = await supabase.from("sales_invoices").delete().not("id", "is", null);
-    if (error) {
-      toast.error(`تعذر مسح الفواتير: ${error.message}`);
+    const loadingToast = toast.loading("جاري مسح الفواتير على دفعات...");
+    try {
+      const deletedInvoices = await deleteTableRowsInChunks("sales_invoices");
+      await deleteTableRowsInChunks("customer_analysis");
+      await logInvoiceAdminAction("مسح كل الفواتير", "مسح كل فواتير التجربة وتحليل العملاء المرتبط بها", {
+        deleted_invoice_count: deletedInvoices,
+      });
+      setDeleteConfirmText("");
+      setManagedInvoices([]);
+      toast.success("تم مسح كل الفواتير التجريبية. يمكنك رفع الفواتير من البداية الآن.", { id: loadingToast });
+    } catch (error) {
+      toast.error(`تعذر مسح الفواتير: ${(error as Error).message}`, { id: loadingToast });
+    } finally {
       setAdminBusy(false);
-      return;
     }
-
-    await supabase.from("customer_analysis").delete().not("id", "is", null);
-    await logInvoiceAdminAction("مسح كل الفواتير", "مسح كل فواتير التجربة وتحليل العملاء المرتبط بها", {
-      deleted_invoice_count: managedInvoices.length,
-    });
-    setDeleteConfirmText("");
-    setManagedInvoices([]);
-    setAdminBusy(false);
-    toast.success("تم مسح كل الفواتير التجريبية. يمكنك رفع الفواتير من البداية الآن.");
   };
 
   const startEditInvoice = (invoice: ManagedInvoiceRow) => {

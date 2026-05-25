@@ -103,6 +103,16 @@ function readFirstText(row: Record<string, unknown>, keys: string[], fallback = 
   return fallback;
 }
 
+function isUuidLikeValue(value: unknown) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value ?? "").trim());
+}
+
+function cleanCustomerCode(value: unknown) {
+  const code = String(value ?? "").trim();
+  if (!code || isUuidLikeValue(code)) return "";
+  return code;
+}
+
 function readCustomerPhone(row: Record<string, unknown>) {
   const raw = readFirstText(row, [
     "phone",
@@ -136,7 +146,7 @@ function phoneKey(value?: string | null) {
 
 function normalizeCustomer(row: Record<string, unknown>): Customer {
   const phone = readCustomerPhone(row);
-  const customerCode = readFirstText(row, ["customer_code", "code", "customer_id", "كود العميل", "كود"]);
+  const customerCode = cleanCustomerCode(readFirstText(row, ["customer_code", "code", "كود العميل", "كود"]));
   const lastPurchase = readFirstText(row, ["last_purchase", "last_purchase_date", "last_invoice_date", "آخر شراء"]);
   const firstPurchase = readFirstText(row, ["first_purchase", "first_purchase_date", "أول شراء"]);
 
@@ -192,9 +202,10 @@ function bucketScore(c: Customer, existing: DailyFollowup[]) {
   const inactiveDays = daysSince(c.last_purchase);
   const customerPhone = phoneKey(c.phone);
   const hadRecentFollowup = existing.some((f) => {
-    const sameCode = f.customer_id === (c.customer_code || c.id);
+    const sameId = c.id && f.customer_id === c.id;
+    const sameCode = c.customer_code && (f.customer_code === c.customer_code || f.customer_id === c.customer_code);
     const samePhone = customerPhone && phoneKey(f.customer_phone) === customerPhone;
-    return (sameCode || samePhone) && daysSince(f.created_at) <= 7;
+    return (sameId || sameCode || samePhone) && daysSince(f.created_at) <= 7;
   });
   const valueScore = Math.min(80, Math.round((c.avg_monthly || 0) / 250));
   const inactivityScore = Math.min(100, inactiveDays * 1.5);
@@ -320,7 +331,7 @@ async function loadCustomerPhoneLookup(followups: DailyFollowup[]) {
     if (error || !data) continue;
 
     for (const raw of data as Record<string, unknown>[]) {
-      const code = readFirstText(raw, ["customer_code", "code", "customer_id", "id"]);
+      const code = cleanCustomerCode(readFirstText(raw, ["customer_code", "code"]));
       const name = readFirstText(raw, ["name", "customer_name", "client_name"]);
       const phone = readCustomerPhone(raw);
       if (!phoneKey(phone)) continue;
@@ -338,7 +349,7 @@ async function hydrateFollowupCustomerPhones(rows: DailyFollowup[]) {
 
   return rows.map((row) => {
     if (phoneKey(row.customer_phone)) return row;
-    const code = String(row.customer_code || row.customer_id || "").trim();
+    const code = cleanCustomerCode(row.customer_code) || "";
     const name = String(row.customer_name || "").trim();
     const phone = phoneLookup.get(`code:${code}`) || phoneLookup.get(`name:${name}`);
     return phone ? { ...row, customer_phone: phone } : row;
@@ -414,7 +425,7 @@ export async function getFollowupHistory(options: { limit?: number; from?: strin
 
 export async function getCustomerFollowupHistory(customer: { code?: string | null; name?: string | null; phone?: string | null }, limit = 100) {
   requireSupabaseConfig();
-  const code = String(customer.code || "").trim();
+  const code = cleanCustomerCode(customer.code);
   const name = String(customer.name || "").trim();
   const phone = cleanEgyptianPhone(customer.phone || "");
 
@@ -492,14 +503,14 @@ export async function generateTodayFollowups() {
   const today = start.toISOString().slice(0, 10);
   const records = buckets.flatMap((bucket) =>
     bucket.customers.map((c) => {
-      const code = c.customer_code || c.id;
+      const code = c.customer_code || "";
       const topDoctor = topDoctors.get(code) || null;
       const monthly = getCustomerMonthlyInteractionSummary(c as unknown as Record<string, unknown>, invoices);
       const monthlyNote = monthly.shouldAlert
         ? `\nتنبيه التكرار الشهري: العميل تعامل هذا الشهر ${monthly.currentMonthVisits} مرة، ومتوسطه المعتاد ${monthly.expectedMonthlyVisits} مرة.`
         : "";
       return {
-        customer_id: code,
+        customer_id: c.id || code || c.phone || c.name,
         customer_code: c.customer_code || null,
         customer_name: c.name,
         customer_phone: c.phone,

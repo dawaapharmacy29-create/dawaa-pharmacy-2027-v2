@@ -601,11 +601,13 @@ export function parseInvoiceFile(
       });
       return;
     }
-    if (!customerCode && !isValidPhone(phone)) {
-      return;
-    }
+    // Import the invoice even when the old file has no customer code/phone.
+    // It will be marked for review later, and customer matching can still use the name as a fallback.
+    if (!customerCode && !isValidPhone(phone) && !name) return;
 
-    const uniqueKey = `${invoiceNumber || customerCode}-${date}-${amount}`;
+    const uniqueKey = invoiceNumber || customerCode || phone
+      ? `${invoiceNumber || customerCode || phone}-${date}-${amount}`
+      : `row-${rowIndex}-${date}-${amount}`;
     if (seen.has(uniqueKey)) {
       errors.push({
         row: rowIndex,
@@ -1180,7 +1182,7 @@ export async function importInvoicesToDB(
     invoice_type: row.invoiceType,
     customer_code: row.customerCode,
     customer_name: row.name,
-    customer_phone: row.phone || `code:${row.customerCode}`,
+    customer_phone: row.phone || (row.customerCode ? `code:${row.customerCode}` : ""),
     invoice_date: row.date,
     invoice_datetime: row.invoiceDateTime,
     close_datetime: row.closeDateTime,

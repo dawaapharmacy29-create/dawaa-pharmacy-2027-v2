@@ -268,7 +268,7 @@ const configs: Record<string, ModuleConfig> = {
       { value: "stopped", label: "متوقف", tone: STATUS_TONES.needs_review },
     ],
     dashboardHint: "العروض النشطة والاستوريز التي تحتاج تقرير تظهر في لوحة القيادة.",
-    defaultValues: { title: "", description: "", branch: "كل الفروع", start_date: new Date().toISOString().slice(0, 10), end_date: new Date().toISOString().slice(0, 10), discount_type: "note", discount_value: 0, status: "scheduled", notes: "" },
+    defaultValues: { title: "", description: "", image_url: "", branch: "كل الفروع", start_date: new Date().toISOString().slice(0, 10), end_date: new Date().toISOString().slice(0, 10), discount_type: "note", discount_value: 0, initial_qty: 0, remaining_qty: 0, boxes_dispensed: 0, sales_count: 0, sales_value: 0, doctor_name: "", status: "scheduled", notes: "" },
     fields: [
       { key: "title", label: "عنوان العرض", required: true },
       { key: "branch", label: "الفرع", kind: "select", options: BRANCH_OPTIONS },
@@ -276,10 +276,16 @@ const configs: Record<string, ModuleConfig> = {
       { key: "end_date", label: "تاريخ النهاية", kind: "date" },
       { key: "discount_type", label: "نوع الخصم", kind: "select", options: ["percentage", "fixed", "bundle", "note"] },
       { key: "discount_value", label: "قيمة الخصم", kind: "number" },
+      { key: "image_url", label: "رابط صورة العرض" },
+      { key: "initial_qty", label: "الكمية المبدئية", kind: "number" },
+      { key: "boxes_dispensed", label: "علب تم صرفها", kind: "number" },
+      { key: "remaining_qty", label: "المتبقي", kind: "number" },
+      { key: "sales_value", label: "قيمة المبيعات", kind: "number" },
+      { key: "doctor_name", label: "الدكتور المرتبط" },
       { key: "description", label: "الوصف", kind: "textarea" },
       { key: "notes", label: "ملاحظات", kind: "textarea" },
     ],
-    searchKeys: ["title", "description", "branch", "status"],
+    searchKeys: ["title", "description", "branch", "status", "doctor_name"],
   },
   training: {
     title: "أساسيات التدريب والاختبارات",
@@ -362,6 +368,7 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
   const config = configs[module];
   const { user } = useAuth();
   const [rows, setRows] = useState<Array<Record<string, unknown>>>([]);
+  const [storyRows, setStoryRows] = useState<Array<Record<string, unknown>>>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -395,8 +402,16 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
     } else {
       setRows((data || []) as Array<Record<string, unknown>>);
     }
+    if (module === "stories") {
+      const { data: storiesData, error: storiesError } = await supabase
+        .from("whatsapp_stories")
+        .select("*")
+        .order("story_date", { ascending: false })
+        .limit(500);
+      setStoryRows(storiesError ? [] : ((storiesData || []) as Array<Record<string, unknown>>));
+    }
     setLoading(false);
-  }, [config.table]);
+  }, [config.table, module]);
 
   useEffect(() => {
     void loadRows();
@@ -503,6 +518,8 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
         <Stat value={stats.urgent} label="أولوية عالية" danger={stats.urgent > 0} />
       </div>
 
+      {module === "stories" && <StoriesOffersAnalytics offers={rows} stories={storyRows} />}
+
       <div className="rounded-2xl border border-[#2d4063] bg-[#1B2B4B] p-5">
         <div className="mb-4 flex items-center gap-2 text-white font-bold">
           <Plus size={18} className="text-teal-300" />
@@ -600,6 +617,89 @@ export function OperationalModulePage({ module }: { module: keyof typeof configs
             </table>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function StoriesOffersAnalytics({
+  offers,
+  stories,
+}: {
+  offers: Array<Record<string, unknown>>;
+  stories: Array<Record<string, unknown>>;
+}) {
+  const asNumber = (value: unknown) => {
+    const n = Number(value ?? 0);
+    return Number.isFinite(n) ? n : 0;
+  };
+  const offerSales = offers.reduce((sum, row) => sum + asNumber(row.sales_value), 0);
+  const offerBoxes = offers.reduce((sum, row) => sum + asNumber(row.boxes_dispensed), 0);
+  const storyViews = stories.reduce((sum, row) => sum + asNumber(row.views_count), 0);
+  const storySales = stories.reduce((sum, row) => sum + asNumber(row.sales_value), 0);
+  const topStories = [...stories]
+    .sort((a, b) => asNumber(b.sales_value) - asNumber(a.sales_value) || asNumber(b.views_count) - asNumber(a.views_count))
+    .slice(0, 5);
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <div className="rounded-2xl border border-teal-400/20 bg-[#10213a] p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-black text-white">تحليل العروض</h2>
+          <span className="rounded-full bg-teal-500/10 px-3 py-1 text-xs font-bold text-teal-200">{offers.length.toLocaleString("ar-EG")} عرض</span>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <Stat value={offerBoxes} label="علب مصروفة" />
+          <Stat value={Math.round(offerSales)} label="قيمة المبيعات" />
+          <Stat value={offers.filter((row) => String(row.status || "") === "active").length} label="عروض نشطة" />
+        </div>
+        <div className="mt-4 space-y-2">
+          {offers.slice(0, 4).map((offer) => (
+            <div key={String(offer.id || offer.title)} className="rounded-xl border border-[#2d4063] bg-white/[0.03] p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="font-bold text-white">{String(offer.title || "عرض بدون عنوان")}</div>
+                  <div className="mt-1 text-xs text-slate-400">
+                    {String(offer.branch || "كل الفروع")} · المتبقي {asNumber(offer.remaining_qty).toLocaleString("ar-EG")} · دكتور {String(offer.doctor_name || "غير محدد")}
+                  </div>
+                </div>
+                {offer.image_url ? <img src={String(offer.image_url)} alt="" className="h-12 w-12 rounded-lg object-cover" /> : null}
+              </div>
+            </div>
+          ))}
+          {offers.length === 0 && <div className="rounded-xl bg-white/[0.03] p-4 text-center text-sm text-slate-400">لا توجد عروض مسجلة للتحليل حاليًا.</div>}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-teal-400/20 bg-[#10213a] p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-black text-white">تحليل الاستوريز</h2>
+          <span className="rounded-full bg-cyan-500/10 px-3 py-1 text-xs font-bold text-cyan-200">{stories.length.toLocaleString("ar-EG")} ستوري</span>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <Stat value={storyViews} label="مشاهدات" />
+          <Stat value={Math.round(storySales)} label="مبيعات" />
+          <Stat value={stories.reduce((sum, row) => sum + asNumber(row.inquiries_count), 0)} label="استفسارات" />
+        </div>
+        <div className="mt-4 space-y-2">
+          {topStories.map((story, index) => (
+            <div key={String(story.id || story.title || index)} className="rounded-xl border border-[#2d4063] bg-white/[0.03] p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-bold text-white">#{index + 1} {String(story.title || "ستوري بدون عنوان")}</div>
+                  <div className="mt-1 text-xs text-slate-400">
+                    ترتيب {String(story.story_order || "-")} · {formatArabicDate(story.story_date)} · {String(story.story_time || "")}
+                  </div>
+                  <div className="mt-1 text-xs text-teal-200">
+                    {asNumber(story.views_count).toLocaleString("ar-EG")} مشاهدة · {asNumber(story.boxes_dispensed || story.sales_count).toLocaleString("ar-EG")} علبة · {String(story.branch || "كل الفروع")} · {String(story.doctor_name || "غير محدد")}
+                  </div>
+                </div>
+                {story.image_url ? <img src={String(story.image_url)} alt="" className="h-14 w-14 shrink-0 rounded-lg object-cover" /> : null}
+              </div>
+            </div>
+          ))}
+          {stories.length === 0 && <div className="rounded-xl bg-white/[0.03] p-4 text-center text-sm text-slate-400">لا توجد استوريز مسجلة للتحليل حاليًا.</div>}
+        </div>
       </div>
     </div>
   );
