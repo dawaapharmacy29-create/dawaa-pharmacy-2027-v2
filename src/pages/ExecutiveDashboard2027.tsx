@@ -309,7 +309,7 @@ export default function ExecutiveDashboard2027() {
       { label: "نواقص حرجة", count: criticalShortages.length, icon: Package, tone: criticalShortages.length ? "danger" as const : "success" as const, route: "/shortages" },
       { label: "مستلزمات ناقصة", count: criticalSupplies.length, icon: PackageSearch, tone: criticalSupplies.length ? "danger" as const : "success" as const, route: "/supplies" },
       { label: "إكسسوار يحتاج عرض", count: accessoryDisplayIssues.length, icon: Star, tone: accessoryDisplayIssues.length ? "warning" as const : "success" as const, route: "/accessories" },
-      { label: "استوريز تحتاج تقرير", count: storiesNeedReport.length, icon: BellRing, tone: storiesNeedReport.length ? "warning" as const : "success" as const, route: "/stories-offers" },
+      { label: "استوريز تحتاج تقرير", count: storiesNeedReport.length, icon: BellRing, tone: storiesNeedReport.length ? "warning" as const : "success" as const, route: "/stories" },
       { label: "تدريبات معلقة", count: pendingTraining.length, icon: Crown, tone: pendingTraining.length ? "warning" as const : "success" as const, route: "/training" },
       { label: "دليفري متأخر", count: delayedDelivery.length || openDelivery.length, icon: MapPin, tone: delayedDelivery.length ? "danger" as const : "info" as const, route: "/delivery" },
     ];

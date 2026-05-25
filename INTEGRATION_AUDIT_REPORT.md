@@ -1,90 +1,67 @@
-# Dawaa Pharmacy 2027 Integration Audit Report
+﻿# Dawaa Pharmacy 2027 Integration Audit Report
 
-Date: 2026-05-24
+## Scope
+تمت مراجعة مسارات الربط الحالية مع التركيز على مصدر الحقيقة، الصور، العروض، الاستوريز، طلبات العملاء، الفواتير، والمتابعات.
 
-## Canonical Source Rules Applied
+## Source Of Truth Decisions
+- customers: مصدر بيانات العميل الأساسية والكود الحقيقي والملاحظات وال flags.
+- sales_invoices: مصدر مشتريات العملاء والتحليلات المالية والفواتير ومتوسطات الشراء.
+- daily_followups / customer_followups: مصدر المتابعات.
+- customer_requests / customer_request_events: مصدر طلبات العملاء وسجل حركتها.
+- employee_transactions: دفتر النقاط والحوافز والخصومات الوحيد النشط.
+- offers / offer_dispenses: مصدر العروض وصرفها وتحليلها.
+- whatsapp_stories / story_performance_reports / story_sales: مصدر الاستوريز وتحليلها ومبيعاتها.
+- customer_analysis: جدول مساعد/كاش فقط، لا يستخدم كمصدر مبيعات حي.
 
-- Customer sales metrics: `sales_invoices` only.
-- Customer basic data: `customers`.
-- Customer notes and flags: `customers.team_notes`, `customers.handling_notes`, `customers.customer_flags`.
-- Followups: `daily_followups`; `customer_followups` should be added through a unified adapter if enabled later.
-- Customer requests: `customer_requests`, `customer_request_events`.
-- Points, rewards, penalties: `employee_transactions` only.
-- Conversation reviews: `conversation_sales_reviews`.
-- Stagnant medicines: `stagnant_medicines`, `stagnant_medicine_dispenses`.
-- Incentive medicines: `incentive_medicines`.
+## Page Audit
+| Page | Tables Read | Tables Written | Fix Applied |
+| --- | --- | --- | --- |
+| /customers | customers, sales_invoices | customers | منع عرض UUID كود عميل، والمشتريات من sales_invoices فقط. |
+| /customer-service | daily_followups, customers, sales_invoices | daily_followups | المتابعات الآن تستخدم كود العميل الحقيقي عند توفره وتمنع UUID ككود. |
+| /customer-requests | customer_requests, customer_request_events, customers, staff | customer_requests, customer_request_events, storage customer-request-images | إضافة رفع صورة الصنف، image_url/path، تواريخ الطلب، مصدر محتمل. |
+| /import-invoices | sales_invoices, customer_analysis | sales_invoices, customer_analysis | مسح الفواتير على دفعات لتجنب timeout، واستيراد ملفات قديمة بمرونة أكبر. |
+| /offers | offers, offer_dispenses | offers, storage offer-assets | صفحة جديدة منفصلة للعروض مع رفع صورة وتحليل وحالة العرض وحافز الدكتور. |
+| /stories | whatsapp_stories, story_performance_reports, story_sales, offers | whatsapp_stories, story_performance_reports, storage story-assets | صفحة جديدة منفصلة للاستوريز مع رفع صورة وتقارير مشاهدة ومبيعات. |
+| /stories-offers | none | none | تم تحويله إلى /offers حتى لا تختلط الشاشتان. |
+| /penalty-incentive | employee_transactions | employee_transactions | يعتمد على pointsLedger لتنظيف السبب والمنفذ ومنع النصوص التقنية. |
+| /points | employee_transactions | employee_transactions | المصدر النشط هو دفتر employee_transactions. |
+| /shelf-organization | shelf_tasks | shelf_tasks | متصل بمهام الرفوف والمسؤول والمراجع. |
+| /branch-cleaning | branch_cleaning_tasks | branch_cleaning_tasks | متصل بمسؤول النظافة والمراجع. |
+| /inventory-counts | inventory_count_sessions/items | inventory_count_sessions/items | يدعم استيراد Excel للجرد والأصناف والتواريخ. |
+| /shortages | shortage_items | shortage_items | التصنيفات والمسؤول من بيانات الدكاترة. |
+| /supplies | supplies_items | supplies_items | قائمة مستلزمات ومراجع أسبوعي. |
+| /accessories | accessory_items | accessory_items | موردين وتصنيف ومتابعة عرض. |
 
-## Helpers Added Or Updated
+## Storage
+تمت إضافة helper `storageUpload.ts` ومكون `ImageUploadBox.tsx`.
+- customer-request-images: طلبات العملاء.
+- offer-assets: صور العروض.
+- story-assets: صور الاستوريز.
 
-- `src/lib/customerMetrics.ts`: customer matching and metrics from `sales_invoices`.
-- `src/lib/salesInvoiceSource.ts`: normalized invoice source and customer/staff sales metrics.
-- `src/lib/pointsLedger.ts`: official ledger calculations plus display formatters that hide UUIDs, RULE/CMP codes, raw metadata, and duplicated technical text.
-- `src/lib/dataSources.ts`: canonical source map.
-- `src/lib/staffMetrics.ts`: staff metrics adapter from canonical sources.
-- `src/lib/dashboardMetrics.ts`: dashboard metrics adapter from canonical sources.
-- `src/lib/customerTimeline.ts`: unified customer timeline scaffold.
-- `src/lib/branchMetrics.ts`: branch metrics from invoices and operational rows.
+## Migrations
+تمت إضافة migration جديد:
+`supabase/20260524_full_integration_storage_offers_stories.sql`
 
-## Page-by-Page Audit
+يشمل:
+- أعمدة customers المطلوبة.
+- أعمدة employee_transactions المساعدة للعرض النظيف.
+- أعمدة customer_requests للصور والتواريخ والمصدر.
+- customer_request_sources.
+- offers و offer_dispenses.
+- whatsapp_stories و story_performance_reports و story_sales.
+- manager_role_assignments و manager_performance_reviews.
+- سياسات Storage للقراءة والرفع لل buckets الثلاثة.
 
-| Page | Reads | Writes | Status / Fix |
-|---|---|---|---|
-| `/` Executive Dashboard 2027 | `sales_invoices`, `customers`, `daily_followups`, `customer_requests`, `employee_transactions`, operations tables | none | Uses canonical sales source. Added visible 26-to-25 date filters and operations priority cards. |
-| `/dashboard-classic` | `sales_invoices` | none | Kept as archive/classic. Hidden from main navigation except archive group. |
-| `/customers` | `customers`, `sales_invoices`, `daily_followups` | `customers` | Fixed stale sales bug. No longer uses `customer_analysis` as primary source. Notes/flags save to `customers`. |
-| Customer 360 | `sales_invoices`, `daily_followups`, `customers` | `customers` | Sales values now zero when no matching invoices exist. Save toast waits for Supabase success. |
-| `/customer-service` | `daily_followups`, customer helpers | `daily_followups` | Followup generation now uses `customers + sales_invoices`, not `customer_analysis`. |
-| `/customer-requests` | `customer_requests`, `customer_request_events` | same | Uses canonical request tables. Migration adds missing workflow/source fields. |
-| `/analytics` | `sales_invoices` | none | Canonical invoice source. |
-| `/import-invoices` | `sales_invoices`, import logs | `sales_invoices`, optional `customer_analysis` refresh/cache | Delete flow deletes invoice rows and cached analysis. Visible metrics elsewhere no longer depend on cache. |
-| `/staff/:id` | `sales_invoices`, `daily_followups`, `employee_transactions`, `conversation_sales_reviews`, medicine tables | none | Uses canonical tables; point reasons cleaned through ledger helper in visible list. |
-| `/penalty-incentive` | `employee_transactions`, `staff` | `employee_transactions` | Fixed raw reason/executor display. Rows show clean reason, executor, source, type, status; details modal hides technical metadata. |
-| `/points` | `employee_transactions`, `staff`, `evaluation_rules` | `employee_transactions` | Raw `reason`/`created_by` display cleaned through `pointsLedger`. |
-| `/conversation-reviews` | `conversation_sales_reviews` | same, `employee_transactions` through points persistence | Canonical review source. |
-| `/whatsapp-analytics` | `conversation_sales_reviews`, `sales_invoices`, `employee_transactions` | none | Canonical WhatsApp source with invoice enrichment. |
-| `/stagnant-medicines` | `stagnant_medicines`, `stagnant_medicine_dispenses`, `customers`, `sales_invoices` | stagnant tables, `employee_transactions` | Removed `customer_analysis` from customer search/list. |
-| `/incentive-medicines` | `incentive_medicines` | `incentive_medicines`, `employee_transactions` | Canonical incentive source. |
-| `/delivery` | `sales_invoices`, delivery issue tables if present | delivery issue records | Sales from invoices; no fake delivery metrics. |
-| `/stories-offers` | `offers`, `whatsapp_stories` | same | Real Supabase module page with empty/error states. |
-| `/supplies` | `supplies_items` | same | Real Supabase module page with empty/error states. |
-| `/accessories` | `accessory_items` | same | Real Supabase module page with empty/error states. |
-| `/shortages` | `shortage_items` | same | Real Supabase module page with empty/error states. |
-| `/inventory-counts` | `inventory_count_sessions` | same | Real Supabase module page with empty/error states. |
-| `/shelf-organization` | `shelf_tasks` | same | Real Supabase module page with empty/error states. |
-| `/branch-cleaning` | `branch_cleaning_tasks` | same | Real Supabase module page with empty/error states. |
-| `/training` | `training_modules` | same | Real Supabase module page with empty/error states. |
-| `/manager-performance` | `manager_role_assignments`, `manager_performance_reviews` | pending page-level UI | Migration added tables; full UI integration remains a next step. |
+## Raw/Stale Data Cleanup
+- تم منع استخدام customer_analysis كمصدر أساسي لصفحة العملاء.
+- تم منع customer_id/UUID من الظهور ككود عميل في العملاء والمتابعات.
+- تم تقوية مسح فواتير sales_invoices على دفعات لتفريغ الداتا التجريبية بأمان.
 
-## Stale Dependencies Removed
-
-- Active Customers API no longer loads `customer_analysis` as the primary customer list.
-- Customer 360 sales metrics no longer use cached customer fields.
-- Daily smart followup generation no longer loads customers from `customer_analysis`.
-- Stagnant medicine customer selector no longer reads `customer_analysis`.
-- Notification feed no longer builds customer risk alert from `customer_analysis`.
-
-Remaining `customer_analysis` references are limited to invoice import/cache rebuilding and invoice delete cleanup.
-
-## Raw UI Text Cleaned
-
-- `PenaltyIncentiveManagement` no longer displays raw `reason` or `created_by`.
-- `Points`, `StaffDashboard`, `Team`, and `StaffDetail` now use `getTransactionShortReason`.
-- `pointsLedger` hides UUIDs, zero IDs, `RULE__`, `CMP_`, status metadata, source IDs, and raw JSON-like markers.
-
-## Migrations Added
-
-- `supabase/20260524_full_system_integration_operations_upgrade.sql`
-- `supabase/20260524_full_integration_audit_and_operations.sql`
-
-Both are designed to be idempotent and non-destructive.
+## Tests
+- `npm run build`: Pass.
+- `npm run lint`: Pass with existing warnings only.
 
 ## Known Limitations
-
-- Some existing modules still need deeper UI-specific adoption of the new `staffMetrics`, `dashboardMetrics`, and `customerTimeline` adapters.
-- Live Supabase write tests were not executed in this local sandbox.
-- `customer_analysis` remains as an optional import/cache table, but is no longer treated as live sales truth in fixed pages.
-
-## Test Results
-
-- `npm.cmd run build`: passes.
-- `npm.cmd run lint`: passes with existing non-blocking warnings only.
+- يجب تشغيل migration الجديد على Supabase قبل تجربة حفظ العروض/الاستوريز ورفع الصور في الإنتاج.
+- لم يتم تنفيذ اختبار رفع فعلي إلى Supabase من داخل المتصفح في هذه الجلسة لأن ذلك يحتاج تشغيل التطبيق وربط session المستخدم، لكن الكود يستخدم buckets العامة الجاهزة.
+- بعض warnings قديمة خاصة Fast Refresh وليست أخطاء تشغيل.

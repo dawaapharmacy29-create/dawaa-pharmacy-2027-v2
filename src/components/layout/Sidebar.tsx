@@ -98,7 +98,8 @@ const GROUPS: NavGroup[] = [
     items: [
       { path: "/analytics", icon: BarChart3, label: "التحليلات والمبيعات", permission: "view_analytics_sales" },
       { path: "/invoices", icon: FileSpreadsheet, label: "استيراد الفواتير", permission: "view_invoice_import" },
-      { path: "/stories-offers", icon: Sparkles, label: "الاستوريز والعروض", permission: "view_dashboard" },
+      { path: "/offers", icon: Sparkles, label: "العروض", permission: "view_dashboard" },
+      { path: "/stories", icon: Sparkles, label: "الاستوريز وتحليلها", permission: "view_dashboard" },
     ],
   },
   {

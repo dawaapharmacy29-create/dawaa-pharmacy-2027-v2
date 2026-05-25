@@ -25,6 +25,13 @@ export interface CustomerRequest {
   branch: string | null;
   medicine_name: string;
   medicine_image_url: string | null;
+  item_image_url?: string | null;
+  item_image_path?: string | null;
+  requested_at?: string | null;
+  needed_by_date?: string | null;
+  expected_fulfillment_days?: number | null;
+  potential_source_id?: string | null;
+  potential_source_text?: string | null;
   quantity: number | null;
   urgency: string | null;
   status: CustomerRequestStatus | string | null;
@@ -67,6 +74,13 @@ export interface CustomerRequestInput {
   branch?: string | null;
   medicine_name: string;
   medicine_image_url?: string | null;
+  item_image_url?: string | null;
+  item_image_path?: string | null;
+  requested_at?: string | null;
+  needed_by_date?: string | null;
+  expected_fulfillment_days?: number | null;
+  potential_source_id?: string | null;
+  potential_source_text?: string | null;
   quantity?: number | null;
   urgency?: string | null;
   request_type?: string | null;
@@ -217,7 +231,9 @@ export async function createCustomerRequest(input: CustomerRequestInput) {
     customer_phone: input.customer_phone || null,
     branch: input.branch || null,
     medicine_name: input.medicine_name,
-    medicine_image_url: input.medicine_image_url || null,
+    medicine_image_url: input.medicine_image_url || input.item_image_url || null,
+    item_image_url: input.item_image_url || input.medicine_image_url || null,
+    item_image_path: input.item_image_path || null,
     quantity: Number(input.quantity || 1),
     urgency: input.urgency || "normal",
     status,
@@ -228,6 +244,11 @@ export async function createCustomerRequest(input: CustomerRequestInput) {
     doctor_name: input.doctor_name || null,
     doctor_notes: input.doctor_notes || null,
     supplier_hint: input.supplier_hint || null,
+    requested_at: input.requested_at || new Date().toISOString(),
+    needed_by_date: input.needed_by_date || null,
+    expected_fulfillment_days: input.expected_fulfillment_days || null,
+    potential_source_id: input.potential_source_id || null,
+    potential_source_text: input.potential_source_text || input.supplier_hint || null,
     created_by: input.created_by || null,
     created_by_name: input.created_by_name || null,
     created_at: new Date().toISOString(),

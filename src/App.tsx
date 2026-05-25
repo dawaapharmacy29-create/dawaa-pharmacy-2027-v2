@@ -35,7 +35,8 @@ import InventoryCounts from "@/pages/InventoryCounts";
 import Shortages from "@/pages/Shortages";
 import Supplies from "@/pages/Supplies";
 import Accessories from "@/pages/Accessories";
-import StoriesOffers from "@/pages/StoriesOffers";
+import Offers from "@/pages/Offers";
+import Stories from "@/pages/Stories";
 import Training from "@/pages/Training";
 import WhatsappAnalytics from "@/pages/WhatsappAnalytics";
 import NotFound from "@/pages/NotFound";
@@ -232,11 +233,25 @@ export default function App() {
           }
         />
         <Route
-          path="/stories-offers"
+          path="/offers"
           element={
             <ProtectedRoute>
-              <StoriesOffers />
+              <Offers />
             </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/stories"
+          element={
+            <ProtectedRoute>
+              <Stories />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/stories-offers"
+          element={
+            <Navigate to="/offers" replace />
           }
         />
         <Route

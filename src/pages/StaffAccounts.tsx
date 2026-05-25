@@ -187,8 +187,8 @@ const FULL_PERMISSIONS = [
 ];
 
 const PERMISSION_GROUPS = [
-  { title: "??????? ????????", keys: ["view_shortages", "manage_shortages", "view_supplies", "manage_supplies", "view_accessories", "manage_accessories", "view_shelf_organization", "manage_shelf_organization", "view_inventory_counts", "manage_inventory_counts", "view_branch_cleaning", "manage_branch_cleaning", "review_branch_cleaning"] },
-  { title: "???????", keys: ["view_training", "manage_training"] },
+  { title: "المخزون والتشغيل", keys: ["view_shortages", "manage_shortages", "view_supplies", "manage_supplies", "view_accessories", "manage_accessories", "view_shelf_organization", "manage_shelf_organization", "view_inventory_counts", "manage_inventory_counts", "view_branch_cleaning", "manage_branch_cleaning", "review_branch_cleaning"] },
+  { title: "التدريب", keys: ["view_training", "manage_training"] },
   { title: "لوحة التحكم", keys: ["view_dashboard", "view_doctor_dashboard"] },
   { title: "العملاء وخدمة العملاء", keys: ["view_customers", "edit_customers", "view_customer_service", "manage_followups"] },
   { title: "الفريق والجدول", keys: ["view_team", "view_schedule", "manage_time_off"] },

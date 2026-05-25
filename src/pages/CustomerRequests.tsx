@@ -19,6 +19,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { formatDate } from "@/lib/utils";
 import { displayEgyptianPhone, generateWhatsAppLink } from "@/lib/whatsapp";
+import ImageUploadBox from "@/components/ImageUploadBox";
 import {
   createCustomerRequest,
   getCustomerRequestEvents,
@@ -387,8 +388,11 @@ function CreateRequestPanel({
   const [customerSearch, setCustomerSearch] = useState("");
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [medicineName, setMedicineName] = useState("");
-  const [imageUrl, setImageUrl] = useState("");
+  const [image, setImage] = useState({ publicUrl: "", path: "" });
   const [quantity, setQuantity] = useState(1);
+  const [requestedAt, setRequestedAt] = useState(new Date().toISOString().slice(0, 16));
+  const [neededByDate, setNeededByDate] = useState("");
+  const [expectedDays, setExpectedDays] = useState(0);
   const [urgency, setUrgency] = useState("normal");
   const [doctorId, setDoctorId] = useState("");
   const [doctorNotes, setDoctorNotes] = useState("");
@@ -423,7 +427,9 @@ function CreateRequestPanel({
         customer_phone: selectedCustomer.phone,
         branch: selectedCustomer.branch || selectedDoctor?.branch || null,
         medicine_name: medicineName.trim(),
-        medicine_image_url: imageUrl.trim() || null,
+        medicine_image_url: image.publicUrl || null,
+        item_image_url: image.publicUrl || null,
+        item_image_path: image.path || null,
         quantity,
         urgency,
         is_expensive_or_special: special,
@@ -432,6 +438,10 @@ function CreateRequestPanel({
         doctor_name: selectedDoctor?.name || null,
         doctor_notes,
         supplier_hint: supplierHint,
+        requested_at: requestedAt ? new Date(requestedAt).toISOString() : new Date().toISOString(),
+        needed_by_date: neededByDate || null,
+        expected_fulfillment_days: expectedDays || null,
+        potential_source_text: supplierHint || null,
         created_by: user?.id,
         created_by_name: user?.name,
       });
@@ -465,9 +475,16 @@ function CreateRequestPanel({
           <label className="text-slate-300 text-xs">اسم الصنف المطلوب *</label>
           <input className="input-dark mt-1" value={medicineName} onChange={(event) => setMedicineName(event.target.value)} placeholder="مثال: كرومكس 30 قرص" />
         </div>
-        <div>
-          <label className="text-slate-300 text-xs">صورة/لينك الصنف إن وجد</label>
-          <input className="input-dark mt-1" value={imageUrl} onChange={(event) => setImageUrl(event.target.value)} placeholder="رابط صورة أو ملاحظة صورة" />
+        <div className="lg:col-span-3">
+          <ImageUploadBox
+            bucket="customer-request-images"
+            folder="customer-requests"
+            label="رفع صورة الصنف"
+            valueUrl={image.publicUrl}
+            valuePath={image.path}
+            onUploaded={setImage}
+            disabled={saving}
+          />
         </div>
         <div>
           <label className="text-slate-300 text-xs">الكمية المطلوبة</label>
@@ -480,6 +497,18 @@ function CreateRequestPanel({
             <option value="high">مهم</option>
             <option value="urgent">عاجل</option>
           </select>
+        </div>
+        <div>
+          <label className="text-slate-300 text-xs">تاريخ تسجيل الطلب</label>
+          <input className="input-dark mt-1" type="datetime-local" value={requestedAt} onChange={(event) => setRequestedAt(event.target.value)} />
+        </div>
+        <div>
+          <label className="text-slate-300 text-xs">العميل يحتاج الصنف في تاريخ</label>
+          <input className="input-dark mt-1" type="date" value={neededByDate} onChange={(event) => setNeededByDate(event.target.value)} />
+        </div>
+        <div>
+          <label className="text-slate-300 text-xs">أو يحتاجه خلال كام يوم</label>
+          <input className="input-dark mt-1" type="number" min={0} value={expectedDays} onChange={(event) => setExpectedDays(Number(event.target.value || 0))} />
         </div>
         <div>
           <label className="text-slate-300 text-xs">الدكتور الذي سجل الطلب</label>
