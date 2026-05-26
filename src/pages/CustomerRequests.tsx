@@ -25,6 +25,7 @@ import {
   createCustomerRequest,
   getCustomerRequestEvents,
   getCustomerRequests,
+  moveCustomerRequestToShortage,
   requestNeedsAttention,
   requestStatusLabel,
   REQUEST_STATUS_FLOW,
@@ -68,7 +69,7 @@ function valueOf(row: Record<string, unknown>, keys: string[], fallback = "") {
 function customerLabel(c: CustomerRow) {
   const row = c as Record<string, unknown>;
   const name = valueOf(row, ["name", "customer_name"], "عميل بدون اسم");
-  const code = valueOf(row, ["customer_code", "code", "id"]);
+  const code = valueOf(row, ["customer_code", "code"]);
   const phone = valueOf(row, ["phone", "customer_phone"]);
   return `${name}${code ? ` - كود ${code}` : ""}${phone ? ` - ${phone}` : ""}`;
 }
@@ -77,7 +78,7 @@ function normalizeCustomer(c: CustomerRow) {
   const row = c as Record<string, unknown>;
   return {
     id: valueOf(row, ["id", "customer_code", "code"]),
-    code: valueOf(row, ["customer_code", "code", "id"]),
+    code: valueOf(row, ["customer_code", "code"]),
     name: valueOf(row, ["name", "customer_name"], ""),
     phone: valueOf(row, ["phone", "customer_phone"], ""),
     branch: valueOf(row, ["branch"], ""),

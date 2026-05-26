@@ -5,12 +5,11 @@ import SalaryCalculator from "@/components/points/SalaryCalculator";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { formatCurrency, toNumber } from "@/lib/utils";
 import { calculateIncentive, getPerformanceLevel } from "@/lib/points";
-import { INITIAL_POINTS } from "@/lib/constants";
 import { getCurrentCycle, isDateInCycle } from "@/lib/pharmacy-cycle";
 import { computeStaffPerformance2027, performanceRecommendation } from "@/lib/dawaa2027Data";
 import { formatMoney, formatNumber } from "@/lib/dawaa2027";
 import { monthCycleFromDate, type ReviewItemSummary } from "@/lib/conversationReviews";
-import { effectiveCyclePoints, getTransactionShortReason, isApprovedPointRecord, pointRecordDelta } from "@/lib/pointsLedger";
+import { canonicalMaxPoints, effectiveCyclePoints, getTransactionShortReason, isApprovedPointRecord, isRecordInCycle, pointRecordDelta, recordBelongsToStaff } from "@/lib/pointsLedger";
 import { TABLES } from "@/lib/supabaseTables";
 
 interface StaffRow {
@@ -289,12 +288,13 @@ export default function StaffDetail() {
   }, [id, searchParams]);
 
   const cyclePointsRows = useMemo(() => {
-    return pointsRows.filter((row) => {
-      if (!isApprovedPointRecord(row)) return false;
-      if (row.month_cycle) return row.month_cycle === activeMonthCycle;
-      return row.created_at ? isDateInCycle(new Date(row.created_at), cycle) : false;
-    });
-  }, [activeMonthCycle, cycle, pointsRows]);
+    if (!staff) return [];
+    return pointsRows.filter((row) => (
+      isApprovedPointRecord(row) &&
+      isRecordInCycle(row, cycle) &&
+      recordBelongsToStaff(row, staff)
+    ));
+  }, [cycle, pointsRows, staff]);
 
   const cycleReviews = useMemo(() => {
     return reviews.filter((row) => {
@@ -402,7 +402,7 @@ export default function StaffDetail() {
   }
 
   const pts = effectiveCyclePoints(staff, pointsRows, cycle);
-  const max = toNumber(staff.max_points) || INITIAL_POINTS;
+  const max = canonicalMaxPoints(staff);
 
   return (
     <div className="space-y-5 max-w-6xl">

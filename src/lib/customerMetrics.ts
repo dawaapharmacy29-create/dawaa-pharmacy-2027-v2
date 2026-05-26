@@ -44,8 +44,19 @@ function firstText(row: CustomerLike, keys: string[]): string {
   return String(pickFirst(row, keys, "") ?? "").trim();
 }
 
+export function isUuidLikeValue(value: unknown): boolean {
+  const text = String(value ?? "").trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(text);
+}
+
+export function cleanCustomerCode(value: unknown): string {
+  const text = String(value ?? "").trim();
+  if (!text || isUuidLikeValue(text)) return "";
+  return text;
+}
+
 function customerCode(customer: CustomerLike) {
-  return firstText(customer, ["customer_code", "code", "customer_id"]);
+  return cleanCustomerCode(firstText(customer, ["customer_code", "code"]));
 }
 
 function customerPhone(customer: CustomerLike) {
@@ -57,7 +68,7 @@ function customerName(customer: CustomerLike) {
 }
 
 function invoiceCode(invoice: InvoiceLike) {
-  return firstText(invoice, ["customer_code", "code", "customer_id"]);
+  return cleanCustomerCode(firstText(invoice, ["customer_code", "code"]));
 }
 
 function invoicePhone(invoice: InvoiceLike) {
@@ -71,11 +82,11 @@ function invoiceName(invoice: InvoiceLike) {
 export function matchCustomerInvoice(customer: CustomerLike, invoice: InvoiceLike): boolean {
   const cCode = customerCode(customer);
   const iCode = invoiceCode(invoice);
-  if (cCode || iCode) return Boolean(cCode && iCode && cCode === iCode);
+  if (cCode && iCode) return cCode === iCode;
 
   const cPhone = customerPhone(customer);
   const iPhone = invoicePhone(invoice);
-  if (cPhone || iPhone) return Boolean(cPhone && iPhone && cPhone === iPhone);
+  if (cPhone && iPhone) return cPhone === iPhone;
 
   const cName = customerName(customer);
   const iName = invoiceName(invoice);

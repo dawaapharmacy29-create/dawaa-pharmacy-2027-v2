@@ -5,6 +5,7 @@ import {
   matchCustomerInvoice,
   normalizePhone,
   normalizeText,
+  cleanCustomerCode,
   type CustomerLike,
   type InvoiceLike,
 } from "@/lib/customerMetrics";
@@ -23,7 +24,7 @@ export interface NormalizedInvoice {
   customerPhone: string;
 }
 
-export async function fetchSalesInvoices(limit = 20000): Promise<InvoiceLike[]> {
+export async function fetchSalesInvoices(limit = 50000): Promise<InvoiceLike[]> {
   const { data, error } = await supabase
     .from("sales_invoices")
     .select("*")
@@ -42,7 +43,7 @@ export function normalizeInvoice(invoice: InvoiceLike): NormalizedInvoice {
     amount: getInvoiceAmount(invoice),
     doctor: getInvoiceDoctor(invoice) || "غير محدد",
     branch: String(pickFirst(invoice, ["branch", "branch_name"], "غير محدد") || "غير محدد"),
-    customerCode: String(pickFirst(invoice, ["customer_code", "code", "customer_id"], "") || ""),
+    customerCode: cleanCustomerCode(pickFirst(invoice, ["customer_code", "code"], "")),
     customerName: String(pickFirst(invoice, ["customer_name", "name"], "") || ""),
     customerPhone: normalizePhone(pickFirst(invoice, ["customer_phone", "phone", "phone_number", "mobile"], "")),
   };

@@ -12,8 +12,7 @@ import {
 } from "@/lib/pointsWorkflow";
 import { approverHintFromRule, applyStaffDelta, persistPointsTransaction, shouldApplyToBalance } from "@/lib/pointsPersistence";
 import { logActivity } from "@/hooks/useSupabaseQuery";
-import { INITIAL_POINTS } from "@/lib/constants";
-import { toNumber } from "@/lib/utils";
+import { canonicalMaxPoints, effectiveCyclePoints, type PointLedgerRecord } from "@/lib/pointsLedger";
 
 export interface StaffPickerRow {
   id: string;
@@ -205,10 +204,11 @@ export function AddPointsModal({
             : 0;
 
     if (shouldApplyToBalance(status) && deltaBalance !== 0) {
+      const currentPoints = effectiveCyclePoints(selectedStaff, records as PointLedgerRecord[], cycle);
       await applyStaffDelta(
         staffId,
-        selectedStaff.points == null ? INITIAL_POINTS : toNumber(selectedStaff.points, INITIAL_POINTS),
-        toNumber(selectedStaff.max_points) || INITIAL_POINTS,
+        currentPoints,
+        canonicalMaxPoints(selectedStaff),
         deltaBalance,
         selectedStaff.name,
         selectedStaff.branch,

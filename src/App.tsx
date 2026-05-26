@@ -20,6 +20,7 @@ import Invoices from "@/pages/Invoices";
 import ActivityLog from "@/pages/ActivityLog";
 import Reviews from "@/pages/Reviews";
 import ShiftPerformance from "@/pages/ShiftPerformance";
+import ShiftNotes from "@/pages/ShiftNotes";
 import StaffDetail from "@/pages/StaffDetail";
 import TimeOff from "@/pages/TimeOff";
 import DoctorDashboard from "@/pages/DoctorDashboard";
@@ -181,6 +182,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <CustomerRequests />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/shift-notes"
+          element={
+            <ProtectedRoute>
+              <ShiftNotes />
             </ProtectedRoute>
           }
         />

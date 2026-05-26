@@ -2,12 +2,10 @@ import { useMemo } from "react";
 import { TrendingUp, TrendingDown, Award, Star, Calendar } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
-import { effectiveCyclePoints, getTransactionShortReason } from "@/lib/pointsLedger";
+import { canonicalMaxPoints, effectiveCyclePoints, getTransactionShortReason, isApprovedPointRecord, isRecordInCycle, pointRecordDelta, pointRecordStatus, recordBelongsToStaff } from "@/lib/pointsLedger";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
 import { calculateIncentive, getPerformanceLevel } from "@/lib/points";
-import { filterRecordsInCycle } from "@/lib/pointsWorkflow";
-import { INITIAL_POINTS } from "@/lib/constants";
-import { formatDateTime, toNumber, percent } from "@/lib/utils";
+import { formatDateTime, percent } from "@/lib/utils";
 import { TABLES } from "@/lib/supabaseTables";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -37,17 +35,11 @@ interface PointRecord {
 }
 
 function isRewardRecord(row: PointRecord) {
-  return row.type === "reward" || row.type === "bonus" || row.type === "مكافأة";
+  return pointRecordDelta(row) > 0;
 }
 
 function isPenaltyRecord(row: PointRecord) {
-  return row.type === "penalty" || row.type === "deduction" || row.type === "خصم";
-}
-
-function displayStatus(status?: string | null) {
-  if (status === "active") return "approved";
-  if (status === "cancelled") return "rejected";
-  return status || "approved";
+  return pointRecordDelta(row) < 0;
 }
 
 // ─── Component ─────────────────────────────────────────────────────────────
@@ -61,39 +53,49 @@ export default function StaffDashboard() {
   const { data: staffData, loading: staffLoading } =
     useSupabaseQuery<StaffInfo>({
       table: "staff",
-      filters: [{ column: "id", operator: "eq", value: effectiveStaffId }],
-      limit: 1,
+      orderBy: { column: "name", ascending: true },
       realtimeEnabled: false,
     });
 
   // Fetch employee_transactions for this employee only
   const { data: records, loading: recLoading } = useSupabaseQuery<PointRecord>({
     table: TABLES.employeeTransactions,
-    filters: [{ column: "staff_id", operator: "eq", value: effectiveStaffId }],
     orderBy: { column: "created_at", ascending: false },
-    limit: 50,
+    limit: 1000,
     realtimeEnabled: true,
   });
 
-  const staffInfo = staffData[0] ?? null;
+  const staffInfo = useMemo(() => {
+    return (
+      staffData.find((item) => item.id === effectiveStaffId) ||
+      staffData.find((item) => item.name === user?.name) ||
+      null
+    );
+  }, [effectiveStaffId, staffData, user?.name]);
+  const targetStaff = staffInfo || { id: effectiveStaffId, name: user?.name || "" };
 
   // Cycle-filtered and approved records
   const cycleRecords = useMemo(
-    () => filterRecordsInCycle(records, cycle) as PointRecord[],
+    () => records.filter((row) => isRecordInCycle(row, cycle)) as PointRecord[],
     [records, cycle],
   );
 
+  const staffCycleRecords = useMemo(
+    () => cycleRecords.filter((r) => recordBelongsToStaff(r, targetStaff)),
+    [cycleRecords, targetStaff],
+  );
+
   const approvedCycleRecords = useMemo(
-    () => cycleRecords.filter((r) => (r.status || "approved") === "approved"),
-    [cycleRecords],
+    () => staffCycleRecords.filter((r) => isApprovedPointRecord(r)),
+    [staffCycleRecords],
   );
 
   // Effective points using ledger logic
   const currentPoints = useMemo(() => {
     return effectiveCyclePoints(
       {
-        id: user?.id,
-        name: user?.name,
+        id: staffInfo?.id || user?.staffId || user?.id,
+        name: staffInfo?.name || user?.name,
         points: staffInfo?.points,
         max_points: staffInfo?.max_points,
       },
@@ -102,7 +104,7 @@ export default function StaffDashboard() {
     );
   }, [staffInfo, approvedCycleRecords, cycle, user]);
 
-  const maxPoints = toNumber(staffInfo?.max_points, INITIAL_POINTS);
+  const maxPoints = canonicalMaxPoints(staffInfo);
   const incentiveAmount = calculateIncentive(currentPoints);
   const performanceLevel = getPerformanceLevel(currentPoints);
   const pointsPercent = percent(currentPoints, maxPoints);
@@ -111,11 +113,11 @@ export default function StaffDashboard() {
   const bonusRecords = approvedCycleRecords.filter(isRewardRecord);
   const deductionRecords = approvedCycleRecords.filter(isPenaltyRecord);
   const bonusPoints = bonusRecords.reduce(
-    (sum, r) => sum + Math.abs(toNumber(r.points_delta) || toNumber(r.points)),
+    (sum, r) => sum + Math.abs(pointRecordDelta(r)),
     0,
   );
   const deductionPoints = deductionRecords.reduce(
-    (sum, r) => sum + Math.abs(toNumber(r.points_delta) || toNumber(r.points)),
+    (sum, r) => sum + Math.abs(pointRecordDelta(r)),
     0,
   );
 
@@ -259,12 +261,10 @@ export default function StaffDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {records.slice(0, 20).map((row) => {
+                {staffCycleRecords.slice(0, 20).map((row) => {
                   const isBonus = isRewardRecord(row);
-                  const pts = Math.abs(
-                    toNumber(row.points_delta) || toNumber(row.points),
-                  );
-                  const status = displayStatus(row.status);
+                  const pts = Math.abs(pointRecordDelta(row));
+                  const status = pointRecordStatus(row);
                   return (
                     <tr key={row.id}>
                       <td>

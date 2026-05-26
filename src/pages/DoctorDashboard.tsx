@@ -174,8 +174,8 @@ export default function DoctorDashboard() {
   // Calculate points, rewards, and discounts from employee_transactions
   const { data: pointRecords } = useSupabaseQuery<PointRecordRow>({
     table: TABLES.employeeTransactions,
-    filters: [{ column: "staff_id", operator: "eq", value: effectiveId }],
     orderBy: { column: "created_at", ascending: false },
+    limit: 2000,
     realtimeEnabled: true,
   });
 

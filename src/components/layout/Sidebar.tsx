@@ -65,6 +65,7 @@ const GROUPS: NavGroup[] = [
     title: "القيادة اليومية",
     icon: Crown,
     items: [
+      { path: "/shift-notes", icon: ClipboardList, label: "ملاحظات الشيفتات", permission: "view_dashboard" },
       { path: "/", icon: Crown, label: "لوحة القيادة 2027", permission: "view_dashboard" },
       { path: "/operations-center", icon: BellRing, label: "المهام والتنبيهات", permission: "view_dashboard" },
       { path: "/activity-log", icon: ActivitySquare, label: "سجل الأنشطة", adminOnly: true, permission: "view_activity_logs" },

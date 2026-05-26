@@ -3,6 +3,7 @@ import { Award, Crown, FileText, TrendingUp, Users } from "lucide-react";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { formatMoney, formatNumber, getInvoiceAmount, getInvoiceCustomer, getInvoiceDoctor, normalizeArabicName, quarterlyIncentiveFromScore, quarterlyPillars2027 } from "@/lib/dawaa2027";
 import { matchStaffInvoice, matchStaffName } from "@/lib/dawaa2027Data";
+import { isApprovedPointRecord, pointRecordDelta, recordBelongsToStaff } from "@/lib/pointsLedger";
 
 function getQuarterRange(date = new Date()) {
   const month = date.getMonth();
@@ -46,7 +47,7 @@ export default function QuarterlyIncentives2027() {
       const achievedQty = salesRows.reduce((sum, row) => sum + Number(row.quantity || row.qty || 0), 0);
       const stagnantRows = stagnantDispenses.filter((row) => String(row.staff_id || row.doctor_id || "") === String(doctor.id || "") || matchStaffName(row, doctor, ["staff_name", "doctor_name", "responsible_doctor_name"]));
       const dataQualityInvoices = doctorInvoices.filter((invoice) => Boolean(getInvoiceCustomer(invoice)) && Boolean(getInvoiceDoctor(invoice))).length;
-      const penalties = transactions.filter((t) => String(t.staff_id || "") === String(doctor.id || "") && String(t.type || "").toLowerCase().includes("penalty"));
+      const penalties = transactions.filter((t) => isApprovedPointRecord(t) && pointRecordDelta(t) < 0 && recordBelongsToStaff(t, doctor));
       const topCustomer = [...customerValues.entries()].sort((a, b) => b[1] - a[1])[0];
       return {
         name: String(doctor.name || "غير محدد"),

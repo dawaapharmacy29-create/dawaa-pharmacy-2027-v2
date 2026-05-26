@@ -8,8 +8,8 @@ import { BRANCHES, INITIAL_POINTS } from "@/lib/constants";
 import { mergeRulesFromSupabase, type EvaluationRuleDef } from "@/lib/evaluationRulesCatalog";
 import { calculateIncentive, getPerformanceLevel, MAX_BASE_INCENTIVE, POINT_VALUE_EGP } from "@/lib/points";
 import { approverHintFromRule, applyStaffDelta } from "@/lib/pointsPersistence";
-import { effectiveCyclePoints, formatTransactionExecutor, getTransactionShortReason, pointRecordDelta } from "@/lib/pointsLedger";
-import { filterRecordsInCycle, type PointsTxnStatus } from "@/lib/pointsWorkflow";
+import { canonicalMaxPoints, effectiveCyclePoints, formatTransactionExecutor, getTransactionShortReason, isApprovedPointRecord, isRecordInCycle, pointRecordDelta, pointRecordStatus } from "@/lib/pointsLedger";
+import { type PointsTxnStatus } from "@/lib/pointsWorkflow";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
 import { mergeStaffChoices } from "@/lib/staffFallback";
 import { formatCurrency, formatDateTime, percent, toNumber } from "@/lib/utils";
@@ -175,9 +175,9 @@ export default function Points() {
     const employeeName = String(row.employee_name || "").trim();
     return validStaffIds.has(employeeId) || validStaffNames.has(employeeName) || validStaffNames.has(normalizeStaffLookupKey(employeeName));
   }), [canonicalRecords, validStaffIds, validStaffNames]);
-  const cycleRecords = useMemo(() => filterRecordsInCycle(validRecords, cycle) as PointRecord[], [validRecords, cycle]);
+  const cycleRecords = useMemo(() => validRecords.filter((row) => isRecordInCycle(row, cycle)) as PointRecord[], [validRecords, cycle]);
   const approvedCycleRecords = useMemo(() => {
-    return cycleRecords.filter((row) => (row.status || parseNoteStatus(row.manager_note) || "approved") === "approved");
+    return cycleRecords.filter((row) => isApprovedPointRecord(row));
   }, [cycleRecords]);
   const normalizedSearch = search.replace(/\*/g, " ").replace(/\s+/g, " ").trim();
 
@@ -191,7 +191,7 @@ export default function Points() {
   const topPerformers = [...staffChoices]
     .sort((a, b) => effectiveCyclePoints(b, approvedCycleRecords, cycle) - effectiveCyclePoints(a, approvedCycleRecords, cycle))
     .slice(0, 3);
-  const pendingApprovals = validRecords.filter((row) => (row.status || parseNoteStatus(row.manager_note)) === "pending" && isDeductionRecord(row));
+  const pendingApprovals = validRecords.filter((row) => pointRecordStatus(row) === "pending" && isDeductionRecord(row));
   const myCycleRecords = approvedCycleRecords.filter((row) => row.employee_id === user?.id);
 
   const staffCycleRecords = (staff: StaffMember) => {
@@ -216,7 +216,7 @@ export default function Points() {
       staff,
       records: employeeRecords,
       currentPoints,
-      maxPoints: toNumber(staff.max_points) || INITIAL_POINTS,
+      maxPoints: canonicalMaxPoints(staff),
       rewardPoints,
       penaltyPoints,
       incentive: calculateIncentive(currentPoints),
@@ -296,8 +296,8 @@ export default function Points() {
       if (employee) {
         await applyStaffDelta(
           employee.id,
-          employee.points == null ? INITIAL_POINTS : toNumber(employee.points, INITIAL_POINTS),
-          toNumber(employee.max_points) || INITIAL_POINTS,
+          effectiveCyclePoints(employee, approvedCycleRecords, cycle),
+          canonicalMaxPoints(employee),
           -recordPoints(row),
           employee.name,
           employee.branch,
@@ -399,7 +399,7 @@ export default function Points() {
               {getPerformanceLevel(employeePoints)} - حافز متوقع {calculateIncentive(employeePoints).toLocaleString("ar-EG")} ج
             </div>
             <div className="progress-bar mt-2">
-              <div className="progress-fill" style={{ width: `${percent(employeePoints, toNumber(employee.max_points) || INITIAL_POINTS)}%` }} />
+              <div className="progress-fill" style={{ width: `${percent(employeePoints, canonicalMaxPoints(employee))}%` }} />
             </div>
             <div className="text-slate-400 text-xs mt-2">{employee.branch}</div>
             <button
@@ -503,7 +503,7 @@ export default function Points() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {filteredStaff.map((employee) => {
               const points = effectiveCyclePoints(employee, approvedCycleRecords, cycle);
-              const maxPoints = toNumber(employee.max_points) || INITIAL_POINTS;
+              const maxPoints = canonicalMaxPoints(employee);
               const pointPercent = percent(points, maxPoints);
               const normalizedEmployeeName = normalizeStaffLookupKey(employee.name);
               const employeeRecords = approvedCycleRecords.filter((row) => {

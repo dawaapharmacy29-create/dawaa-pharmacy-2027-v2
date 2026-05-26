@@ -3,7 +3,7 @@ import { Search, Plus, Phone, Edit2, UserCheck, Loader2, Eye, ClipboardList } fr
 import { useSupabaseQuery, logActivity } from "@/hooks/useSupabaseQuery";
 import { isCurrentlyOnShift, matchesOrderedSegments, percent } from "@/lib/utils";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
-import { effectiveCyclePoints, getTransactionShortReason, isApprovedPointRecord, pointRecordDelta, recordBelongsToStaff, type PointLedgerRecord } from "@/lib/pointsLedger";
+import { canonicalMaxPoints, effectiveCyclePoints, getTransactionShortReason, isApprovedPointRecord, isRecordInCycle, pointRecordDelta, recordBelongsToStaff, type PointLedgerRecord } from "@/lib/pointsLedger";
 import { BRANCHES, DAYS_AR, ROLES, INITIAL_POINTS } from "@/lib/constants";
 import { useAuth, getSafeCurrentUserId } from "@/hooks/useAuth";
 import { toast } from "sonner";
@@ -205,9 +205,10 @@ export default function Team() {
           const shift = todayShift(emp);
           const onShift = Boolean(shift?.shift_start && shift?.shift_end && !shift.is_off && isCurrentlyOnShift(shift.shift_start, shift.shift_end) && emp.status === "نشط");
           const points = effectiveCyclePoints(emp, pointRecords || [], cycle);
-          const pointsPct = percent(points, emp.max_points || INITIAL_POINTS);
+          const maxPoints = canonicalMaxPoints(emp);
+          const pointsPct = percent(points, maxPoints);
           const transactions = getEmployeeTransactions(emp);
-          const activeTransactions = transactions.filter((t) => isApprovedPointRecord(t as PointLedgerRecord));
+          const activeTransactions = transactions.filter((t) => isApprovedPointRecord(t as PointLedgerRecord) && isRecordInCycle(t as PointLedgerRecord, cycle));
           const penaltyRows = activeTransactions.filter((t) => pointRecordDelta(t as PointLedgerRecord) < 0);
           const bonusRows = activeTransactions.filter((t) => pointRecordDelta(t as PointLedgerRecord) > 0);
           const penalties = penaltyRows.length;
@@ -258,7 +259,7 @@ export default function Team() {
                 <div className="flex items-center justify-between text-xs mb-1.5">
                   <span className="text-slate-400">النقاط</span>
                   <span className={`font-bold num ${pointsPct >= 90 ? "text-teal-400" : pointsPct >= 70 ? "text-amber-400" : "text-red-400"}`}>
-                    {points} / {emp.max_points || INITIAL_POINTS}
+                    {points} / {maxPoints}
                   </span>
                 </div>
                 <div className="progress-bar">
@@ -588,7 +589,8 @@ function EmployeeDetailsModal({ employee, schedules, transactions, onClose }: { 
   const cycle = getCurrentCycle();
   const pointRecords = transactions as PointLedgerRecord[];
   const points = effectiveCyclePoints(employee, pointRecords, cycle);
-  const activeTransactions = transactions.filter((t) => isApprovedPointRecord(t as PointLedgerRecord));
+  const maxPoints = canonicalMaxPoints(employee);
+  const activeTransactions = transactions.filter((t) => isApprovedPointRecord(t as PointLedgerRecord) && isRecordInCycle(t as PointLedgerRecord, cycle));
   const penaltyRows = activeTransactions.filter((t) => pointRecordDelta(t as PointLedgerRecord) < 0);
   const bonusRows = activeTransactions.filter((t) => pointRecordDelta(t as PointLedgerRecord) > 0);
   const penalties = penaltyRows.length;
@@ -603,7 +605,7 @@ function EmployeeDetailsModal({ employee, schedules, transactions, onClose }: { 
           <div className="text-slate-400 text-sm">{employee.role} - {employee.branch}</div>
         </div>
         <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-3">
-          <InfoBox label="التقييم الحالي" value={`${points} / ${employee.max_points || INITIAL_POINTS}`} />
+          <InfoBox label="التقييم الحالي" value={`${points} / ${maxPoints}`} />
           <InfoBox label="جزاءات" value={`${penalties}`} />
           <InfoBox label="مكافآت" value={`${bonuses}`} />
           <InfoBox label="إجازات/أذونات" value={`${permissions}`} />

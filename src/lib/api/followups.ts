@@ -1,5 +1,6 @@
 export {
   createDailyFollowup,
+  clearTodayTrialFollowups,
   generateTodayFollowups,
   getTodayFollowups,
   getFollowupHistory,

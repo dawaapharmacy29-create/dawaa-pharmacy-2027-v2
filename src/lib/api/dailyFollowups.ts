@@ -9,11 +9,18 @@ import { logActivity } from "@/lib/activityLog";
 type DailyFollowupInsert = Partial<Omit<DailyFollowup, "id" | "created_at" | "updated_at">>;
 type DailyFollowupUpdate = Partial<DailyFollowup>;
 
-const LIMITS = {
-  vip: 10,
+export const DAILY_FOLLOWUP_QUOTAS = {
   important: 10,
   medium: 10,
-  risk: 15,
+  threatened: 15,
+  stopped: 10,
+} as const;
+
+const LIMITS = {
+  vip: DAILY_FOLLOWUP_QUOTAS.important,
+  important: DAILY_FOLLOWUP_QUOTAS.important,
+  medium: DAILY_FOLLOWUP_QUOTAS.medium,
+  risk: DAILY_FOLLOWUP_QUOTAS.threatened,
 };
 
 function requireSupabaseConfig() {
@@ -48,7 +55,8 @@ function extractBatch(notes: string | null | undefined) {
 }
 
 function isSmartFollowup(row: DailyFollowup) {
-  return (row.notes || "").includes("قائمة يومية ذكية");
+  const notes = row.notes || "";
+  return notes.includes("قائمة يومية ذكية") || notes.includes("Ù‚Ø§Ø¦Ù…Ø© ÙŠÙˆÙ…ÙŠØ© Ø°ÙƒÙŠØ©") || /daily|smart/i.test(notes);
 }
 
 function missingColumn(message: string) {
@@ -447,7 +455,7 @@ export async function getCustomerFollowupHistory(customer: { code?: string | nul
   return hydrateFollowupCustomerPhones((data ?? []) as DailyFollowup[]);
 }
 
-export async function generateTodayFollowups() {
+async function generateTodayFollowupsLegacy() {
   requireSupabaseConfig();
   const start = startOfToday();
   const end = new Date(start);
@@ -468,7 +476,7 @@ export async function generateTodayFollowups() {
     .from("customers")
     .select("*")
     .order("created_at", { ascending: false })
-    .limit(1200);
+    .limit(5000);
 
   if (error) throw new Error(error.message);
 
@@ -539,6 +547,156 @@ export async function generateTodayFollowups() {
     user_role: "system",
     branch_name: "كل الفروع",
     details: { count: inserted.length, batch },
+  });
+
+  return hydrateFollowupCustomerPhones(inserted);
+}
+
+export async function clearTodayTrialFollowups() {
+  requireSupabaseConfig();
+
+  const { data, error: loadError } = await supabase
+    .from("daily_followups")
+    .select("id, notes, followup_type, status, followup_status, created_at")
+    .order("created_at", { ascending: false })
+    .range(0, 9999);
+
+  if (loadError) throw new Error(loadError.message);
+
+  const rows = ((data ?? []) as DailyFollowup[]).filter((row) => {
+    const text = [row.notes, row.followup_type, row.status, row.followup_status].join(" ");
+    return isSmartFollowup(row) || /قائمة يومية|تجريبي|trial|test|daily smart|Ù‚Ø§Ø¦Ù…Ø© ÙŠÙˆÙ…ÙŠØ©|ØªØ¬Ø±ÙŠØ¨ÙŠ/i.test(text);
+  });
+
+  if (rows.length === 0) return 0;
+
+  for (let index = 0; index < rows.length; index += 200) {
+    const chunk = rows.slice(index, index + 200).map((row) => row.id);
+    const { error } = await supabase.from("daily_followups").delete().in("id", chunk);
+    if (error) throw new Error(error.message);
+  }
+
+  return rows.length;
+}
+
+function cleanFollowupNote(category: string, c: Customer, batch: string, invoices: Record<string, unknown>[], topDoctor?: string | null) {
+  const monthly = getCustomerMonthlyInteractionSummary(c as unknown as Record<string, unknown>, invoices);
+  return [
+    "قائمة يومية ذكية",
+    `دفعة: ${batch}`,
+    `الفئة: ${category}`,
+    `كود العميل: ${c.customer_code || "غير مسجل"}`,
+    `رقم الهاتف: ${c.phone || "غير مسجل"}`,
+    `آخر شراء: ${c.last_purchase || "غير محدد"}`,
+    `أول شراء: ${c.first_purchase || "غير محدد"}`,
+    `الدكتور المسؤول: ${topDoctor || preferredAssignee(c)}`,
+    `سبب المتابعة: ${category === "مهم" ? "عميل مهم يحتاج تواصل دوري" : category === "متوسط" ? "عميل متوسط قابل للنمو" : category === "مهدد" ? "انخفاض أو تأخر في تكرار الشراء" : "عميل متوقف يحتاج استرجاع"}`,
+    `المطلوب: ${suggestedAction(category, c, topDoctor)}`,
+    monthly.shouldAlert ? `تنبيه التكرار الشهري: هذا الشهر ${monthly.currentMonthVisits} مرة والمتوسط ${monthly.expectedMonthlyVisits} مرة.` : "",
+  ].filter(Boolean).join("\n");
+}
+
+export async function generateTodayFollowups() {
+  requireSupabaseConfig();
+  const start = startOfToday();
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  const batch = new Date().toISOString();
+
+  const { data: todayRows } = await supabase
+    .from("daily_followups")
+    .select("*")
+    .gte("created_at", start.toISOString())
+    .lt("created_at", end.toISOString())
+    .order("created_at", { ascending: false });
+
+  const existingSmartToday = ((todayRows ?? []) as DailyFollowup[]).filter(isSmartFollowup);
+  if (existingSmartToday.length >= 45) return getTodayFollowups();
+
+  const { data: customerRows, error } = await supabase
+    .from("customers")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(5000);
+
+  if (error) throw new Error(error.message);
+
+  const invoices = await fetchSalesInvoices();
+  const customers = enrichCustomersWithSalesMetrics(((customerRows ?? []) as Record<string, unknown>[]).map(normalizeCustomer), invoices);
+  const { data: recentRows } = await supabase
+    .from("daily_followups")
+    .select("*")
+    .gte("created_at", new Date(Date.now() - 14 * 86400000).toISOString())
+    .order("created_at", { ascending: false })
+    .limit(1200);
+
+  const recentFollowups = (recentRows ?? []) as DailyFollowup[];
+  const picked = new Set<string>(
+    ((todayRows ?? []) as DailyFollowup[])
+      .map((row) => row.customer_code || row.customer_id || row.customer_phone || row.customer_name || "")
+      .filter(Boolean),
+  );
+
+  const bucketDefinitions: Array<[string, (c: Customer) => boolean, number]> = [
+    ["مهم", (c) => isVip(c) || isImportant(c), DAILY_FOLLOWUP_QUOTAS.important],
+    ["متوسط", isMedium, DAILY_FOLLOWUP_QUOTAS.medium],
+    ["مهدد", (c) => !isStopped(c) && (isThreatened(c) || needsMonthlyFrequencyFollowup(c, invoices)), DAILY_FOLLOWUP_QUOTAS.threatened],
+    ["متوقف", isStopped, DAILY_FOLLOWUP_QUOTAS.stopped],
+  ];
+
+  const buckets = bucketDefinitions.map(([category, predicate, limit]) => {
+    const selected = pickBucket(customers, recentFollowups, predicate, picked, limit);
+    selected.forEach((c) => picked.add(c.customer_code || c.id || c.phone));
+    return { category, customers: selected };
+  });
+
+  const allSelected = buckets.flatMap((bucket) => bucket.customers);
+  const topDoctors = await getTopDoctorsByCustomer(allSelected.map((c) => c.customer_code || c.id).filter(Boolean));
+  const today = start.toISOString().slice(0, 10);
+  const records = buckets.flatMap((bucket) =>
+    bucket.customers.map((c) => {
+      const code = c.customer_code || "";
+      const topDoctor = topDoctors.get(code) || null;
+      const monthly = getCustomerMonthlyInteractionSummary(c as unknown as Record<string, unknown>, invoices);
+      const assignee = topDoctor || preferredAssignee(c);
+      return {
+        customer_id: c.id || code || c.phone || c.name,
+        customer_code: c.customer_code || null,
+        customer_name: c.name,
+        customer_phone: c.phone,
+        phone: c.phone,
+        branch: c.branch,
+        assigned_to: assignee,
+        responsible_name: assignee,
+        category: bucket.category,
+        suggested_action: suggestedAction(bucket.category, c, topDoctor),
+        status: "pending",
+        followup_status: "pending",
+        contact_status: "pending",
+        date: today,
+        followup_date: today,
+        last_purchase_date: c.last_purchase || null,
+        purchase_count_current_month: monthly.currentMonthVisits,
+        average_monthly_purchase_count: monthly.expectedMonthlyVisits,
+        purchase_frequency_status: monthly.shouldAlert ? (monthly.currentMonthVisits <= 0 ? "stopped" : "decreased") : "normal",
+        notes: cleanFollowupNote(bucket.category, c, batch, invoices, topDoctor),
+      };
+    }),
+  );
+
+  if (records.length === 0) return [];
+
+  const inserted = await insertFollowupRecords(records);
+  await logActivity({
+    action: "إنشاء قائمة متابعة يومية",
+    module: "خدمة العملاء",
+    target_type: "daily_followups",
+    target_id: batch,
+    user_id: "system",
+    user_name: "النظام",
+    user_role: "system",
+    branch_name: "كل الفروع",
+    details: { count: inserted.length, batch, quotas: DAILY_FOLLOWUP_QUOTAS },
   });
 
   return hydrateFollowupCustomerPhones(inserted);

@@ -163,6 +163,7 @@ export default function ExecutiveDashboard2027() {
   const { data: stories } = useSupabaseQuery<Record<string, unknown>>({ table: "whatsapp_stories", limit: 500, realtimeEnabled: true });
   const { data: trainingAssignments } = useSupabaseQuery<Record<string, unknown>>({ table: "training_assignments", limit: 1000, realtimeEnabled: true });
   const { data: deliveryOrders } = useSupabaseQuery<Record<string, unknown>>({ table: "delivery_orders", limit: 700, realtimeEnabled: true });
+  const { data: shiftNotes } = useSupabaseQuery<Record<string, unknown>>({ table: "shift_notes", limit: 1000, realtimeEnabled: true });
 
   useEffect(() => {
     try {
@@ -217,15 +218,15 @@ export default function ExecutiveDashboard2027() {
     const todayEnd = new Date(today);
     todayEnd.setHours(23, 59, 59, 999);
     const dueByToday = (row: Record<string, unknown>) => {
-      const due = asDate(pickFirst(row, ["due_date", "scheduled_date", "session_date", "date", "target_date"], null));
+      const due = asDate(pickFirst(row, ["due_at", "required_at", "due_date", "scheduled_date", "session_date", "date", "target_date"], null));
       return Boolean(due && due <= todayEnd);
     };
     const dueToday = (row: Record<string, unknown>) => {
-      const due = asDate(pickFirst(row, ["due_date", "scheduled_date", "session_date", "date", "target_date"], null));
+      const due = asDate(pickFirst(row, ["due_at", "required_at", "due_date", "scheduled_date", "session_date", "date", "target_date"], null));
       return Boolean(due && due >= todayStart && due <= todayEnd);
     };
     const isDelayed = (row: Record<string, unknown>) => {
-      const due = asDate(pickFirst(row, ["due_date", "scheduled_date", "session_date", "date", "target_date"], null));
+      const due = asDate(pickFirst(row, ["due_at", "required_at", "due_date", "scheduled_date", "session_date", "date", "target_date"], null));
       return Boolean(due && due < todayStart && isOpenStatus(getStatus(row)));
     };
 
@@ -264,6 +265,15 @@ export default function ExecutiveDashboard2027() {
     const pendingTraining = trainingAssignments.filter((row) => isOpenStatus(getStatus(row)));
     const openDelivery = deliveryOrders.filter((row) => isOpenStatus(getStatus(row)));
     const delayedDelivery = deliveryOrders.filter(isDelayed);
+    const openShiftNotes = shiftNotes.filter((row) => isOpenStatus(getStatus(row)));
+    const shiftNotesToday = shiftNotes.filter((row) => dueToday(row));
+    const overdueShiftNotes = shiftNotes.filter(isDelayed);
+    const urgentShiftNotes = openShiftNotes.filter((row) => ["urgent", "critical"].includes(String(pickFirst(row, ["priority"], "")).toLowerCase()));
+    const completedShiftNotesToday = shiftNotes.filter((row) => {
+      const status = getStatus(row).toLowerCase();
+      const closedAt = asDate(pickFirst(row, ["closed_at", "completed_at", "updated_at"], null));
+      return Boolean(["completed", "done", "تم"].some((x) => status.includes(x)) && closedAt && closedAt >= todayStart && closedAt <= todayEnd);
+    });
 
     const byDoctor = new Map<string, { name: string; sales: number; invoices: number; customers: Set<string> }>();
     cycleInvoices.forEach((row) => {
@@ -339,9 +349,12 @@ export default function ExecutiveDashboard2027() {
       { label: "طلب متابعة متأخر", sub: "عملاء يحتاجون اتصال", count: pendingFollowups.length, tone: "danger", icon: Phone, route: "/customer-service" },
       { label: "مهام مستحقة اليوم", sub: "مهام ومتابعات مطلوبة", count: tasksOpen.length, tone: "warning", icon: CalendarDays, route: "/operations-center" },
       { label: "طلبات قيد التنفيذ", sub: "طلبات عملاء مفتوحة", count: requestOpen.length, tone: "info", icon: PackageSearch, route: "/customer-requests" },
+      { label: "ملاحظات شيفت متأخرة", sub: "تحتاج متابعة قبل التسليم", count: overdueShiftNotes.length, tone: overdueShiftNotes.length ? "danger" : "success", icon: ClipboardList, route: "/shift-notes" },
       { label: "أدوية راكدة", sub: "تحتاج إجراء سريع", count: stagnant.length, tone: "success", icon: Package, route: "/stagnant-medicines" },
     ];
     const operationsPriorities = [
+      { label: "ملاحظات الشيفت اليوم", count: shiftNotesToday.length, icon: ClipboardList, tone: shiftNotesToday.length ? "warning" as const : "success" as const, route: "/shift-notes" },
+      { label: "ملاحظات شيفت عاجلة", count: urgentShiftNotes.length, icon: BellRing, tone: urgentShiftNotes.length ? "danger" as const : "success" as const, route: "/shift-notes" },
       { label: "متابعات عاجلة", count: pendingFollowups.length, icon: AlertTriangle, tone: "danger" as const, route: "/customer-service" },
       { label: "طلبات عملاء مفتوحة", count: requestOpen.length, icon: PackageSearch, tone: "info" as const, route: "/customer-requests" },
       { label: "تنظيم رفوف متأخر", count: delayedShelfTasks.length || dueShelfTasksToday.length, icon: ClipboardList, tone: delayedShelfTasks.length ? "danger" as const : "warning" as const, route: "/shelf-organization" },
@@ -378,10 +391,14 @@ export default function ExecutiveDashboard2027() {
       topAlerts,
       operationsPriorities,
       activeOffers,
+      shiftNotesToday,
+      overdueShiftNotes,
+      urgentShiftNotes,
+      completedShiftNotesToday,
       periodLabel: `${periodStart} → ${periodEnd}`,
       staffCount: staff.length,
     };
-  }, [invoices, followups, requests, transactions, stagnant, incentiveMedicines, tasks, staff, shelfTasks, cleaningTasks, inventorySessions, shortages, supplies, accessories, offers, stories, trainingAssignments, deliveryOrders, periodStart, periodEnd]);
+  }, [invoices, followups, requests, transactions, stagnant, incentiveMedicines, tasks, staff, shelfTasks, cleaningTasks, inventorySessions, shortages, supplies, accessories, offers, stories, trainingAssignments, deliveryOrders, shiftNotes, periodStart, periodEnd]);
 
   return (
     <div className="dawaa-executive-dashboard space-y-4" dir="rtl">

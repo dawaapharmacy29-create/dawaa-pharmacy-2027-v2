@@ -277,7 +277,7 @@ export default function Customers() {
                     </td>
                     <td>
                       <span className="text-slate-300 text-sm num">
-                        {c.customer_code || c.id || "-"}
+                        {c.customer_code || "بدون كود"}
                       </span>
                     </td>
                     <td>
@@ -542,7 +542,7 @@ function CustomerModal({
             </div>
             <div className="text-slate-400 text-sm flex items-center gap-2">
               <Phone size={13} />
-              {c.phone || "بدون رقم"} - كود {c.customer_code || c.id || "-"} -{" "}
+              {c.phone || "بدون رقم"} - كود {c.customer_code || "بدون كود"} -{" "}
               {c.branch || "غير محدد"}
             </div>
           </div>

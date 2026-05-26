@@ -10,7 +10,7 @@ import { INITIAL_POINTS } from "@/lib/constants";
 import { isDeliveryInvoice } from "@/lib/analyticsFromInvoices";
 import { logActivity } from "@/hooks/useSupabaseQuery";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
-import { effectiveCyclePoints, pointRecordDelta } from "@/lib/pointsLedger";
+import { effectiveCyclePoints, isApprovedPointRecord, isRecordInCycle, pointRecordDelta, recordBelongsToStaff } from "@/lib/pointsLedger";
 import { TABLES } from "@/lib/supabaseTables";
 
 interface SalesInv {
@@ -91,7 +91,11 @@ export default function Delivery() {
     return statsByDeliverer.map(([name, st]) => {
       const profile = deliveryStaffList.find((s) => name.includes(s.name) || s.name.includes(name));
       const pts = profile ? effectiveCyclePoints(profile, pointRows, cycle) : INITIAL_POINTS;
-      const relatedPoints = pointRows.filter((p) => p.staff_id === profile?.id || p.employee_id === profile?.id || p.employee_name === profile?.name || String(p.employee_name || "").includes(name));
+      const relatedPoints = pointRows.filter((p) => (
+        isApprovedPointRecord(p) &&
+        isRecordInCycle(p, cycle) &&
+        (profile ? recordBelongsToStaff(p, profile) : String(p.employee_name || "").includes(name))
+      ));
       const deductions = relatedPoints.filter((p) => pointRecordDelta(p) < 0).length;
       const bonuses = relatedPoints.filter((p) => pointRecordDelta(p) > 0).length;
       const avgRating = 0;

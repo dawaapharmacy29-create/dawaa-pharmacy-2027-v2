@@ -14,9 +14,11 @@ import {
   RefreshCw,
   Search,
   ShoppingBag,
+  Trash2,
   Wand2,
 } from "lucide-react";
 import {
+  clearTodayTrialFollowups,
   createDailyFollowup,
   generateTodayFollowups,
   getFollowupHistory,
@@ -265,6 +267,7 @@ export default function CustomerService() {
   const [followupSearch, setFollowupSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [clearingTrial, setClearingTrial] = useState(false);
   const [bulkDoctor, setBulkDoctor] = useState("");
   const [shamyDoctor, setShamyDoctor] = useState("");
   const [shokryDoctor, setShokryDoctor] = useState("");
@@ -514,6 +517,24 @@ export default function CustomerService() {
     }
   };
 
+  const handleClearTrial = async () => {
+    const confirmed = window.confirm("سيتم مسح قائمة المتابعة التجريبية/الذكية الخاصة باليوم الحالي فقط. هل تريد المتابعة؟");
+    if (!confirmed) return;
+
+    setClearingTrial(true);
+    try {
+      const deleted = await clearTodayTrialFollowups();
+      setFollowups([]);
+      setSelected(null);
+      await loadHistory();
+      toast.success(deleted ? `تم مسح ${deleted} متابعة تجريبية من قائمة اليوم` : "لا توجد بيانات تجريبية اليوم");
+    } catch (error) {
+      toast.error(`تعذر مسح بيانات المتابعة التجريبية: ${(error as Error).message}`);
+    } finally {
+      setClearingTrial(false);
+    }
+  };
+
   const setFollowupDoctor = async (
     followup: DailyFollowup,
     doctorName: string,
@@ -657,6 +678,14 @@ export default function CustomerService() {
             <Wand2 size={16} />
           )}
           إنشاء/تحديث قائمة اليوم
+        </button>
+        <button
+          onClick={handleClearTrial}
+          disabled={clearingTrial || generating}
+          className="btn-secondary flex items-center justify-center gap-2 border-red-400/30 text-red-200 hover:bg-red-500/10"
+        >
+          {clearingTrial ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+          مسح البيانات التجريبية
         </button>
         <button
           onClick={loadFollowups}

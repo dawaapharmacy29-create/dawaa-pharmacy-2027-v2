@@ -17,7 +17,7 @@ import { logActivity } from "@/lib/activityLog";
 import { supabase } from "@/lib/supabase";
 import { TABLES } from "@/lib/supabaseTables";
 import { formatDateTime, toNumber } from "@/lib/utils";
-import { BRANCHES, POINT_REASONS, INITIAL_POINTS } from "@/lib/constants";
+import { BRANCHES, POINT_REASONS } from "@/lib/constants";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
 import { mergeStaffChoices } from "@/lib/staffFallback";
 import {
@@ -29,11 +29,15 @@ import {
   formatTransactionSource,
   getTransactionDetails,
   getTransactionShortReason,
+  canonicalMaxPoints,
+  effectiveCyclePoints,
   isApprovedPointRecord,
+  isRecordInCycle,
   normalizeTransactionType,
   pointRecordDelta,
+  pointRecordStatus,
+  type PointLedgerRecord,
 } from "@/lib/pointsLedger";
-import { filterRecordsInCycle } from "@/lib/pointsWorkflow";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -94,10 +98,9 @@ const EMPTY_FORM = {
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 function recordStatus(r: PointRecord): RecordStatus {
-  const raw = String(r.status || "approved").toLowerCase();
-  if (["approved", "active", "done", "completed", "معتمد"].includes(raw)) return "approved";
-  if (["pending", "review", "قيد المراجعة", "قيد الاعتماد"].includes(raw)) return "pending";
-  if (["rejected", "cancelled", "canceled", "رفض", "مرفوض"].includes(raw)) return "rejected";
+  const status = pointRecordStatus(r);
+  if (status === "pending") return "pending";
+  if (status === "rejected" || status === "cancelled") return "rejected";
   return "approved";
 }
 
@@ -182,7 +185,7 @@ export default function PenaltyIncentiveManagement() {
   }), [records, staffChoices]);
 
   const cycleRecords = useMemo(
-    () => filterRecordsInCycle(canonicalRecords, cycle) as PointRecord[],
+    () => canonicalRecords.filter((row) => isRecordInCycle(row, cycle)) as PointRecord[],
     [canonicalRecords, cycle],
   );
 
@@ -275,10 +278,11 @@ export default function PenaltyIncentiveManagement() {
       }
 
       if (finalStatus === "approved") {
+        const approvedRows = cycleRecords.filter(isApprovedPointRecord) as PointLedgerRecord[];
         await applyStaffDelta(
           selectedStaff.id,
-          toNumber(selectedStaff.points, INITIAL_POINTS),
-          toNumber(selectedStaff.max_points, INITIAL_POINTS),
+          effectiveCyclePoints(selectedStaff, approvedRows, cycle),
+          canonicalMaxPoints(selectedStaff),
           form.type === "مكافأة" ? form.points : -form.points,
           selectedStaff.name,
           selectedStaff.branch,
@@ -336,10 +340,11 @@ export default function PenaltyIncentiveManagement() {
       );
       if (staff) {
         const delta = isBonus(row) ? absPoints(row) : -absPoints(row);
+        const approvedRows = cycleRecords.filter(isApprovedPointRecord) as PointLedgerRecord[];
         await applyStaffDelta(
           staff.id,
-          toNumber(staff.points, INITIAL_POINTS),
-          toNumber(staff.max_points, INITIAL_POINTS),
+          effectiveCyclePoints(staff, approvedRows, cycle),
+          canonicalMaxPoints(staff),
           delta,
           staff.name,
           staff.branch,

@@ -23,6 +23,7 @@ import { getCustomers } from "@/lib/api/customers";
 import { toNumber } from "@/lib/utils";
 import { mergeStaffChoices, reviewerChoices } from "@/lib/staffFallback";
 import { TABLES } from "@/lib/supabaseTables";
+import { canonicalMaxPoints, canonicalSnapshotPoints } from "@/lib/pointsLedger";
 
 interface StaffOpt {
   id: string;
@@ -386,8 +387,8 @@ export default function Reviews() {
         } else if (result.impactStatus === "approved") {
           await applyStaffDelta(
             selectedStaff.id,
-            selectedStaff.points == null ? 500 : toNumber(selectedStaff.points, 500),
-            toNumber(selectedStaff.max_points) || 500,
+            canonicalSnapshotPoints(selectedStaff),
+            canonicalMaxPoints(selectedStaff),
             repeatedDoctorImpact > 0 ? Math.abs(repeatedDoctorImpact) : -Math.abs(repeatedDoctorImpact),
             selectedStaff.name,
             selectedStaff.branch,

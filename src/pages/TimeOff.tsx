@@ -9,6 +9,7 @@ import { applyStaffDelta, persistPointsTransaction } from "@/lib/pointsPersisten
 import { mergeStaffChoices, type StaffChoice } from "@/lib/staffFallback";
 import type { EvaluationRuleDef } from "@/lib/evaluationRulesCatalog";
 import { getSafeCurrentUserId } from "@/hooks/useAuth";
+import { canonicalMaxPoints, canonicalSnapshotPoints } from "@/lib/pointsLedger";
 
 const TYPES = ["إذن تأخير", "إذن انصراف مبكر", "إجازة مرضية", "إجازة عارضة", "غياب", "تبديل شيفت"];
 const STATUSES = ["pending", "approved", "rejected"];
@@ -172,8 +173,8 @@ export default function TimeOff() {
       } else if (status === "approved" && !selectedStaff.id.startsWith("fallback-")) {
         await applyStaffDelta(
           selectedStaff.id,
-          selectedStaff.points == null ? 500 : Number(selectedStaff.points) || 500,
-          Number(selectedStaff.max_points) || 500,
+          canonicalSnapshotPoints(selectedStaff),
+          canonicalMaxPoints(selectedStaff),
           -deductionPoints,
           selectedStaff.name,
           selectedStaff.branch,

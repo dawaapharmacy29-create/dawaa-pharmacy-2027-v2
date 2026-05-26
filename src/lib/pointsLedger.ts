@@ -51,6 +51,19 @@ function numeric(value: unknown): number | null {
   return Number.isFinite(next) ? next : null;
 }
 
+export function canonicalMaxPoints(staff?: StaffLedgerTarget | null) {
+  const storedMax = numeric(staff?.max_points);
+  return Math.max(INITIAL_POINTS, storedMax ?? INITIAL_POINTS);
+}
+
+export function canonicalSnapshotPoints(staff?: StaffLedgerTarget | null) {
+  const storedPoints = numeric(staff?.points);
+  const storedMax = numeric(staff?.max_points);
+  if (storedPoints === null) return INITIAL_POINTS;
+  if (storedMax !== null && storedMax < INITIAL_POINTS && storedPoints <= storedMax) return INITIAL_POINTS;
+  return Math.max(0, Math.min(canonicalMaxPoints(staff), Math.round(storedPoints)));
+}
+
 export function normalizeStaffLedgerKey(value: unknown) {
   return String(value || "")
     .replace(/[\u0623\u0625\u0622]/g, "\u0627")
@@ -90,9 +103,9 @@ export function pointRecordDelta(row: PointLedgerRecord) {
   const type = String(row.type || "").trim();
   const absPoints = Math.abs(rawPoints ?? explicitDelta ?? 0);
 
+  if (explicitDelta !== null && explicitDelta !== 0) return explicitDelta;
   if (type === "reward" || type === "bonus" || type === "مكافأة") return absPoints;
   if (type === "penalty" || type === "deduction" || type === "خصم" || type === "جزاء") return -absPoints;
-  if (explicitDelta !== null && explicitDelta !== 0) return explicitDelta;
   return rawPoints ?? 0;
 }
 
@@ -238,8 +251,9 @@ export function getTransactionDetails(row: PointLedgerRecord) {
 
 export function isRecordInCycle(row: PointLedgerRecord, cycle: PharmacyCycle) {
   const activeMonthCycle = monthCycleFromDate(cycle.end);
-  if (row.month_cycle) return row.month_cycle === activeMonthCycle;
-  return row.created_at ? isDateInCycle(new Date(row.created_at), cycle) : true;
+  const createdInCycle = row.created_at ? isDateInCycle(new Date(row.created_at), cycle) : false;
+  if (row.month_cycle) return row.month_cycle === activeMonthCycle || createdInCycle;
+  return row.created_at ? createdInCycle : true;
 }
 
 export function recordBelongsToStaff(row: PointLedgerRecord, staff: StaffLedgerTarget) {
@@ -260,17 +274,12 @@ export function effectiveCyclePoints(
   records: PointLedgerRecord[],
   cycle: PharmacyCycle,
 ) {
-  const maxPoints = numeric(staff.max_points) ?? INITIAL_POINTS;
-  const persistedPoints = numeric(staff.points);
+  const maxPoints = canonicalMaxPoints(staff);
   const matchingRecords = records.filter((row) => (
     isApprovedPointRecord(row) &&
     isRecordInCycle(row, cycle) &&
     recordBelongsToStaff(row, staff)
   ));
-
-  if (!matchingRecords.length && persistedPoints !== null) {
-    return Math.max(0, Math.min(maxPoints, Math.round(persistedPoints)));
-  }
 
   const delta = matchingRecords.reduce((sum, row) => sum + pointRecordDelta(row), 0);
   return Math.max(0, Math.min(maxPoints, Math.round(INITIAL_POINTS + delta)));
