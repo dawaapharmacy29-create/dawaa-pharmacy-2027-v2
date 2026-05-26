@@ -5,6 +5,7 @@ async function importWithFallback(packageName, fallbackPath) {
     return await import(packageName);
   } catch (error) {
     if (error?.code !== "ERR_MODULE_NOT_FOUND") throw error;
+    return import(new URL(fallbackPath, import.meta.url));
   }
 }
 
