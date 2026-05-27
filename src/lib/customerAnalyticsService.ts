@@ -18,15 +18,15 @@ export function cleanCustomerCode(value: unknown) {
 }
 
 // تصنيف العملاء حسب المشتريات الشهرية:
-// مهم جدًا: أكثر من 8000 شهريًا | مهم: 4000-8000 | متوسط: 1500-4000 | عادي: أقل من 1500
+// مهم جدًا: >= 8000 شهريًا | مهم: >= 4000 | متوسط: >= 1500 | عادي: < 1500
 export function normalizeCustomerSegment(value: unknown, _totalSpent = 0, avgMonthly = 0) {
   const raw = String(value ?? "").trim().toLowerCase().replace("جداً", "جدًا").replace("جدا", "جدًا");
   // توحيد القيم القديمة، لكن الحكم النهائي يكون من avg_monthly إذا كان متاحًا.
   const avg = Number(avgMonthly || 0);
-  if (avg > 8000) return "مهم جدًا";
-  if (avg > 4000) return "مهم";
-  if (avg > 1500) return "متوسط";
-  if (avg >= 0) return "عادي";
+  if (avg >= 8000) return "مهم جدًا";
+  if (avg >= 4000) return "مهم";
+  if (avg >= 1500) return "متوسط";
+  if (avg > 0) return "عادي";
   if (["مهم جدًا", "vip", "very important"].includes(raw)) return "مهم جدًا";
   if (["مهم", "important"].includes(raw)) return "مهم";
   if (["متوسط", "medium"].includes(raw)) return "متوسط";
@@ -265,7 +265,7 @@ export async function getCustomerStatuses() {
 export async function getCustomersAtRisk(limit = 50) {
   const customers = await fetchPaged("customers");
   return customers
-    .filter((row) => ["مفقود", "معرض للفقدان"].includes(normalizeCustomerStatus(row.status, row.last_purchase, row.first_purchase)))
+    .filter((row) => ["متوقف", "مهدد بالتوقف"].includes(normalizeCustomerStatus(row.status, row.last_purchase, row.first_purchase)))
     .sort((a, b) => Number(b.total_spent || 0) - Number(a.total_spent || 0))
     .slice(0, limit);
 }

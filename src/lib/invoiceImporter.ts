@@ -10,6 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { getCycleForDate } from "@/lib/pharmacy-cycle";
 import { getShiftFromDateTime } from "@/lib/analyticsFromInvoices";
 import { rebuildCustomerStats } from "@/lib/customerAnalyticsService";
+import { invalidateInvoiceCache } from "@/lib/salesInvoiceSource";
 import { getSalesValue } from "@/lib/analyticsService";
 
 export interface RawInvoiceRow {
@@ -1571,6 +1572,7 @@ export async function importInvoicesToDB(
   }
 
   await refreshCustomerAnalysisForImportedRows(rows, branch, summary);
+  invalidateInvoiceCache();
   try {
     const rebuilt = await rebuildCustomerStats();
     summary.updatedCustomers = Math.max(summary.updatedCustomers, rebuilt.customers);
