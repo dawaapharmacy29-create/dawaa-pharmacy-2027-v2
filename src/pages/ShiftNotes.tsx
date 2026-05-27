@@ -241,6 +241,7 @@ export default function ShiftNotes() {
   const [customerSearchResults, setCustomerSearchResults] = useState<Record<string, unknown>[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<Record<string, unknown> | null>(null);
   const [showCustomerSearch, setShowCustomerSearch] = useState(false);
+  const [postponeModal, setPostponeModal] = useState<{ note: ShiftNote | null; customDate: string }>({ note: null, customDate: "" });
 
   const canManage = isAdmin || /مدير|admin/i.test(user?.role || "");
 
@@ -739,6 +740,7 @@ export default function ShiftNotes() {
         (filter === "assigned_pending" && note.status === "assigned_pending") ||
         (filter === "completed_today" && note.status === "completed" && closedKey === today) ||
         (filter === "archive" && ["completed", "cancelled"].includes(note.status || "")) ||
+        (filter === "postponed" && note.postponed_until && !["completed", "cancelled"].includes(note.status || "")) ||
         filter === note.status;
 
       const matchesDimension =
@@ -766,6 +768,8 @@ export default function ShiftNotes() {
     let pending = 0;
     let recurring = 0;
     let completed = 0;
+    let postponed = 0;
+    let inProgress = 0;
 
     for (const note of notes) {
       const dueKey = dayKey(note.due_at);
@@ -776,9 +780,11 @@ export default function ShiftNotes() {
       if (note.status === "assigned_pending") pending += 1;
       if (note.is_recurring && dueKey === today) recurring += 1;
       if (note.status === "completed" && closedKey === today) completed += 1;
+      if (note.postponed_until && !["completed", "cancelled"].includes(note.status || "")) postponed += 1;
+      if (note.status === "in_progress") inProgress += 1;
     }
 
-    return { today: todayCount, overdue, urgent, pending, recurring, completed };
+    return { total: notes.length, today: todayCount, overdue, urgent, pending, recurring, completed, postponed, inProgress };
   }, [notes]);
 
   return (
@@ -796,7 +802,39 @@ export default function ShiftNotes() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <button onClick={() => setFilter("all")} className={`stat-card cursor-pointer transition-all hover:scale-105 ${filter === "all" ? "ring-2 ring-teal-400" : ""}`}>
+          <div className="text-2xl font-bold num text-white">{summary.total}</div>
+          <div className="text-slate-400 text-xs mt-1">إجمالي الملاحظات</div>
+        </button>
+        <button onClick={() => setFilter("assigned_pending")} className={`stat-card cursor-pointer transition-all hover:scale-105 ${filter === "assigned_pending" ? "ring-2 ring-blue-400" : ""}`}>
+          <div className="text-2xl font-bold num text-blue-300">{summary.pending}</div>
+          <div className="text-slate-400 text-xs mt-1">معلقة</div>
+        </button>
+        <button onClick={() => setFilter("overdue")} className={`stat-card cursor-pointer transition-all hover:scale-105 ${filter === "overdue" ? "ring-2 ring-red-400" : ""}`}>
+          <div className="text-2xl font-bold num text-red-300">{summary.overdue}</div>
+          <div className="text-slate-400 text-xs mt-1">متأخرة</div>
+        </button>
+        <button onClick={() => setFilter("postponed")} className={`stat-card cursor-pointer transition-all hover:scale-105 ${filter === "postponed" ? "ring-2 ring-amber-400" : ""}`}>
+          <div className="text-2xl font-bold num text-amber-300">{summary.postponed}</div>
+          <div className="text-slate-400 text-xs mt-1">مؤجلة</div>
+        </button>
+        <button onClick={() => setFilter("completed")} className={`stat-card cursor-pointer transition-all hover:scale-105 ${filter === "completed" ? "ring-2 ring-emerald-400" : ""}`}>
+          <div className="text-2xl font-bold num text-emerald-300">{summary.completed}</div>
+          <div className="text-slate-400 text-xs mt-1">تمت</div>
+        </button>
+        <button onClick={() => setFilter("urgent")} className={`stat-card cursor-pointer transition-all hover:scale-105 ${filter === "urgent" ? "ring-2 ring-red-400" : ""}`}>
+          <div className="text-2xl font-bold num text-red-400">{summary.urgent}</div>
+          <div className="text-slate-400 text-xs mt-1">عاجلة/حرجة</div>
+        </button>
+        <button onClick={() => setFilter("today")} className={`stat-card cursor-pointer transition-all hover:scale-105 ${filter === "today" ? "ring-2 ring-teal-400" : ""}`}>
+          <div className="text-2xl font-bold num text-teal-300">{summary.today}</div>
+          <div className="text-slate-400 text-xs mt-1">ملاحظات اليوم</div>
+        </button>
+        <button onClick={() => notesSectionRef.current?.scrollIntoView({ behavior: "smooth" })} className={`stat-card cursor-pointer transition-all hover:scale-105 ${deletedNotes.length > 0 ? "ring-2 ring-slate-400" : ""}`}>
+          <div className="text-2xl font-bold num text-slate-300">{deletedNotes.length}</div>
+          <div className="text-slate-400 text-xs mt-1">محذوفة يمكن استرجاعها</div>
+        </button>
       </div>
 
       {deletedNotes.length > 0 && (
@@ -961,6 +999,7 @@ export default function ShiftNotes() {
           <option value="in_progress">قيد التنفيذ</option>
           <option value="completed">مكتملة</option>
           <option value="cancelled">ملغية</option>
+          <option value="postponed">مؤجلة</option>
         </select>
         <select className="input-dark" value={dimensionFilter} onChange={(event) => setDimensionFilter(event.target.value)}>
           <option value="all">حسب الفرع/النوع/المسؤول</option>
@@ -1042,6 +1081,45 @@ export default function ShiftNotes() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {postponeModal.note && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-white font-bold text-lg mb-4">اختر وقت التأجيل</h3>
+            <div className="space-y-2">
+              <button onClick={() => executePostpone("tonight_9pm")} className="w-full text-right p-3 bg-white/5 hover:bg-teal-600/20 rounded-xl transition-colors">
+                الليلة الساعة 9 مساءً
+              </button>
+              <button onClick={() => executePostpone("tomorrow_9am")} className="w-full text-right p-3 bg-white/5 hover:bg-teal-600/20 rounded-xl transition-colors">
+                بكرة الساعة 9 صباحًا
+              </button>
+              <button onClick={() => executePostpone("two_days_9am")} className="w-full text-right p-3 bg-white/5 hover:bg-teal-600/20 rounded-xl transition-colors">
+                بعد يومين الساعة 9 صباحًا
+              </button>
+              <button onClick={() => executePostpone("30_minutes")} className="w-full text-right p-3 bg-white/5 hover:bg-teal-600/20 rounded-xl transition-colors">
+                بعد نصف ساعة
+              </button>
+              <button onClick={() => executePostpone("1_hour")} className="w-full text-right p-3 bg-white/5 hover:bg-teal-600/20 rounded-xl transition-colors">
+                بعد ساعة
+              </button>
+              <div className="space-y-2">
+                <button onClick={() => executePostpone("custom")} className="w-full text-right p-3 bg-white/5 hover:bg-teal-600/20 rounded-xl transition-colors">
+                  تاريخ ووقت مخصص
+                </button>
+                <input
+                  type="datetime-local"
+                  value={postponeModal.customDate}
+                  onChange={(e) => setPostponeModal({ ...postponeModal, customDate: e.target.value })}
+                  className="input-dark w-full"
+                />
+              </div>
+            </div>
+            <button onClick={() => setPostponeModal({ note: null, customDate: "" })} className="btn-secondary w-full mt-4">
+              إلغاء
+            </button>
+          </div>
         </div>
       )}
 

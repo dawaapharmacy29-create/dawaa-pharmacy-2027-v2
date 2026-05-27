@@ -26,6 +26,7 @@ import {
   type ShiftBounds,
 } from "@/lib/analyticsFromInvoices";
 import { getSalesValue } from "@/lib/analyticsService";
+import { calculateSalesMetrics, getSalesDiagnostics, filterInvoicesByDate } from "@/lib/salesMetrics";
 
 type TabKey = "overview" | "day" | "shifts" | "doctors" | "customers" | "targets" | "alerts";
 
@@ -84,10 +85,12 @@ function isDateInRange(day: string, start: string, end: string) {
 export default function Analytics() {
   const { user } = useAuth();
   const cycle = getCurrentCycle();
+  const previousCycle = getPreviousCycle();
   const today = formatCycleDate(new Date());
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [periodStart, setPeriodStart] = useState(() => formatCycleDate(cycle.start));
   const [periodEnd, setPeriodEnd] = useState(() => formatCycleDate(cycle.end));
+  const [periodType, setPeriodType] = useState<"cycle" | "previous_cycle" | "month" | "last_30_days" | "custom">("cycle");
   const [selectedDate, setSelectedDate] = useState(today);
   const [selectedBranch, setSelectedBranch] = useState(ALL_FILTER);
   const [selectedDoctor, setSelectedDoctor] = useState(ALL_FILTER);
@@ -98,6 +101,28 @@ export default function Analytics() {
   const [newBranchName, setNewBranchName] = useState("");
   const [newBranchTarget, setNewBranchTarget] = useState(0);
   const [autoPeriodApplied, setAutoPeriodApplied] = useState(false);
+
+  const applyPeriod = (type: "cycle" | "previous_cycle" | "month" | "last_30_days" | "custom") => {
+    setPeriodType(type);
+    if (type === "cycle") {
+      setPeriodStart(formatCycleDate(cycle.start));
+      setPeriodEnd(formatCycleDate(cycle.end));
+    } else if (type === "previous_cycle") {
+      setPeriodStart(formatCycleDate(previousCycle.start));
+      setPeriodEnd(formatCycleDate(previousCycle.end));
+    } else if (type === "month") {
+      const now = new Date();
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      setPeriodStart(formatCycleDate(firstDay));
+      setPeriodEnd(formatCycleDate(lastDay));
+    } else if (type === "last_30_days") {
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000);
+      setPeriodStart(formatCycleDate(thirtyDaysAgo));
+      setPeriodEnd(formatCycleDate(now));
+    }
+  };
 
   const { data: invoices, loading: invLoad, error: invError } = useSupabaseQuery<SalesInvoiceRow>({
     table: "sales_invoices",
@@ -141,9 +166,9 @@ export default function Analytics() {
   }, [autoPeriodApplied, invoices, latestInvoiceDate, periodEnd, periodStart]);
 
   const filteredInvoices = useMemo(() => {
-    return invoices.filter((row) => {
+    const dateFiltered = filterInvoicesByDate(invoices, periodStart, periodEnd);
+    return dateFiltered.filter((row) => {
       const shift = getShiftFromDateTime(dateTimeOf(row), bounds);
-      if (!isDateInRange(dayKey(row), periodStart, periodEnd)) return false;
       if (!branchMatches(selectedBranch, row.branch)) return false;
       if (selectedDoctor !== ALL_FILTER && row.seller_name !== selectedDoctor) return false;
       if (selectedShift !== ALL_FILTER && shift !== selectedShift) return false;
@@ -164,49 +189,20 @@ export default function Analytics() {
     });
   }, [bounds, invoices, selectedBranch, selectedDate, selectedDoctor, selectedShift, selectedType]);
   const periodInvoices = useMemo(() => {
-    return invoices.filter((row) => {
-      const day = dayKey(row);
-      return isDateInRange(day, periodStart, periodEnd);
-    });
+    return filterInvoicesByDate(invoices, periodStart, periodEnd);
   }, [invoices, periodEnd, periodStart]);
 
   const agg = useMemo(() => aggregateInvoiceAnalytics(filteredInvoices, bounds), [filteredInvoices, bounds]);
   const dayAgg = useMemo(() => aggregateInvoiceAnalytics(dayInvoices, bounds), [dayInvoices, bounds]);
+  const salesMetrics = useMemo(() => calculateSalesMetrics(periodInvoices, { from: periodStart, to: periodEnd }), [periodInvoices, periodStart, periodEnd]);
 
   // Diagnostics for debugging
   useEffect(() => {
     if (periodInvoices.length > 0) {
-      const dates = periodInvoices.map(dayKey).filter(Boolean).sort();
-      const grossSum = periodInvoices.reduce((sum, row) => sum + Number(row.gross_amount || 0), 0);
-      const netSum = periodInvoices.reduce((sum, row) => sum + Number(row.net_amount || 0), 0);
-      const totalSum = periodInvoices.reduce((sum, row) => sum + Number(row.amount || 0), 0);
-      const discountSum = periodInvoices.reduce((sum, row) => sum + Number(row.discount_amount || 0), 0);
-      console.log("Analytics Diagnostics:", {
-        invoiceCount: periodInvoices.length,
-        minDate: dates[0],
-        maxDate: dates[dates.length - 1],
-        grossSum,
-        netSum,
-        totalSum,
-        discountSum,
-        branchCounts: periodInvoices.reduce((acc, row) => {
-          const branch = row.branch || "غير محدد";
-          acc[branch] = (acc[branch] || 0) + 1;
-          return acc;
-        }, {} as Record<string, number>),
-        shiftCounts: periodInvoices.reduce((acc, row) => {
-          const shift = getShiftFromDateTime(dateTimeOf(row), bounds);
-          acc[shift] = (acc[shift] || 0) + 1;
-          return acc;
-        }, {} as Record<string, number>),
-        typeCounts: periodInvoices.reduce((acc, row) => {
-          const type = row.invoice_type || "غير محدد";
-          acc[type] = (acc[type] || 0) + 1;
-          return acc;
-        }, {} as Record<string, number>),
-      });
+      const diagnostics = getSalesDiagnostics(periodInvoices, { from: periodStart, to: periodEnd });
+      console.log("Analytics Diagnostics:", diagnostics);
     }
-  }, [periodInvoices, bounds]);
+  }, [periodInvoices, periodStart, periodEnd]);
 
   const doctorRows = useMemo(() => {
     return Object.entries(agg.perDoctor)
@@ -487,18 +483,21 @@ export default function Analytics() {
       {invError && <div className="stat-card border border-red-500/30 text-red-200 text-sm">{invError}</div>}
 
       <div className="stat-card space-y-3">
-        <div className="grid md:grid-cols-6 gap-3">
+        <div className="grid md:grid-cols-7 gap-3">
+          <Filter label="نوع الفترة">
+            <select className="input-dark" value={periodType} onChange={(event) => applyPeriod(event.target.value as any)}>
+              <option value="cycle">الدورة الحالية (26-25)</option>
+              <option value="previous_cycle">الدورة السابقة</option>
+              <option value="month">هذا الشهر</option>
+              <option value="last_30_days">آخر 30 يوم</option>
+              <option value="custom">مخصص</option>
+            </select>
+          </Filter>
           <Filter label="بداية الفترة">
-            <input className="input-dark" type="date" value={periodStart} onChange={(event) => setPeriodStart(event.target.value)} />
+            <input className="input-dark" type="date" value={periodStart} onChange={(event) => { setPeriodStart(event.target.value); setPeriodType("custom"); }} disabled={periodType !== "custom"} />
           </Filter>
           <Filter label="نهاية الفترة">
-            <input className="input-dark" type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} />
-          </Filter>
-          <Filter label="دورة 26-25">
-            <div className="flex gap-2">
-              <button type="button" className="btn-secondary px-3 text-xs" onClick={() => applyCycle(today)}>الحالية</button>
-              <button type="button" className="btn-secondary px-3 text-xs" onClick={applyPreviousCycle}>السابقة</button>
-            </div>
+            <input className="input-dark" type="date" value={periodEnd} onChange={(event) => { setPeriodEnd(event.target.value); setPeriodType("custom"); }} disabled={periodType !== "custom"} />
           </Filter>
           <Filter label="الفرع">
             <select className="input-dark" value={selectedBranch} onChange={(event) => setSelectedBranch(event.target.value)}>

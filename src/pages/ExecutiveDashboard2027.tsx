@@ -52,6 +52,7 @@ import {
   pickFirst,
 } from "@/lib/dawaa2027";
 import { formatCycleDate, getCurrentCycle, getPreviousCycle } from "@/lib/pharmacy-cycle";
+import { calculateSalesMetrics, filterInvoicesByDate } from "@/lib/salesMetrics";
 
 const cx = (...items: Array<string | false | null | undefined>) => items.filter(Boolean).join(" ");
 
@@ -196,18 +197,11 @@ export default function ExecutiveDashboard2027() {
   };
 
   const model = useMemo(() => {
-    const periodStartDate = new Date(`${periodStart}T00:00:00`);
-    const periodEndDate = new Date(`${periodEnd}T23:59:59`);
-    const isInsideSelectedPeriod = (value: unknown) => {
-      const invoiceDate = asDate(value);
-      if (!invoiceDate) return false;
-      if (Number.isNaN(periodStartDate.getTime()) || Number.isNaN(periodEndDate.getTime())) return isInsideCurrentCycle(value);
-      return invoiceDate >= periodStartDate && invoiceDate <= periodEndDate;
-    };
-    const cycleInvoices = invoices.filter((row) => isInsideSelectedPeriod(getInvoiceDate(row)));
-    const totalSales = cycleInvoices.reduce((sum, row) => sum + getInvoiceAmount(row), 0);
-    const avgInvoice = cycleInvoices.length ? totalSales / cycleInvoices.length : 0;
-    const uniqueCustomers = new Set(cycleInvoices.map(getInvoiceCustomer).filter(Boolean)).size;
+    const cycleInvoices = filterInvoicesByDate(invoices, periodStart, periodEnd);
+    const salesMetrics = calculateSalesMetrics(cycleInvoices, { from: periodStart, to: periodEnd });
+    const totalSales = salesMetrics.netSales;
+    const avgInvoice = salesMetrics.averageInvoice;
+    const uniqueCustomers = salesMetrics.customerCount;
     const totalCustomersSeen = new Set(invoices.map(getInvoiceCustomer).filter(Boolean)).size;
     const requestOpen = requests.filter((r) => isOpenStatus(getStatus(r)));
     const tasksOpen = tasks.filter((t) => isOpenStatus(getStatus(t)));

@@ -50,6 +50,7 @@ import {
   normalizeStaffLedgerKey,
   pointRecordDelta,
 } from "@/lib/pointsLedger";
+import { calculateSalesMetrics, filterInvoicesByDate } from "@/lib/salesMetrics";
 
 interface Employee {
   id: string;
@@ -154,7 +155,7 @@ export default function Dashboard() {
         .from("sales_invoices")
         .select("*")
         .gte("invoice_date", periodStart)
-        .lte("invoice_date", periodEnd)
+        .lt("invoice_date", new Date(new Date(periodEnd).getTime() + 86400000).toISOString().slice(0, 10))
         .order("invoice_date", { ascending: false })
         .limit(9000);
       if (!cancelled && !error && data)

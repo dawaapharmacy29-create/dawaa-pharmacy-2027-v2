@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useState, useRef, useCallback } from "react";
-import { Upload, FileSpreadsheet, AlertCircle, CheckCircle, Download, Loader2, XCircle, FileCheck, RefreshCw, ShieldAlert, Trash2, Pencil, Save } from "lucide-react";
+import { Upload, FileSpreadsheet, AlertCircle, CheckCircle, Download, Loader2, XCircle, FileCheck, RefreshCw, ShieldAlert, Trash2, Pencil, Save, BarChart3 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { BRANCHES } from "@/lib/constants";
 import { getSalesValue } from "@/lib/analyticsService";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -451,7 +452,7 @@ export default function Invoices() {
                     <th>الفروع</th>
                     <th>عدد الفواتير</th>
                     <th>الإجمالي</th>
-                    <th>مسح</th>
+                    <th>إجراءات</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -463,15 +464,24 @@ export default function Invoices() {
                       <td className="num">{batchRow.count.toLocaleString("ar-EG")}</td>
                       <td className="text-amber-300 font-bold">{formatCurrency(batchRow.total)}</td>
                       <td>
-                        <button
-                          type="button"
-                          onClick={() => deleteInvoiceBatch(batchRow.batch)}
-                          disabled={adminBusy}
-                          className="rounded-lg border border-red-400/30 bg-red-500/10 p-2 text-red-200 hover:bg-red-500/20 disabled:opacity-50"
-                          title="مسح هذه الدفعة"
-                        >
-                          <Trash2 size={15} />
-                        </button>
+                        <div className="flex gap-2">
+                          <Link
+                            to={`/analytics?start=${batchRow.firstDate}&end=${batchRow.lastDate}`}
+                            className="rounded-lg border border-teal-400/30 bg-teal-500/10 p-2 text-teal-200 hover:bg-teal-500/20 disabled:opacity-50"
+                            title="فتح في التحليلات"
+                          >
+                            <BarChart3 size={15} />
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => deleteInvoiceBatch(batchRow.batch)}
+                            disabled={adminBusy}
+                            className="rounded-lg border border-red-400/30 bg-red-500/10 p-2 text-red-200 hover:bg-red-500/20 disabled:opacity-50"
+                            title="مسح هذه الدفعة"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
