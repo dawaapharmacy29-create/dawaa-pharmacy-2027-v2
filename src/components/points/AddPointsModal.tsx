@@ -188,7 +188,6 @@ export function AddPointsModal({
     });
 
     if (error) {
-      console.error("[points save]", error);
       toast.error("تعذر حفظ العملية. تأكد من تحديث قاعدة البيانات ثم حاول مرة أخرى.");
       setSaving(false);
       return;

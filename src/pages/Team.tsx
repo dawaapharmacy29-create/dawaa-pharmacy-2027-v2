@@ -370,7 +370,6 @@ function EmployeeModal({ employee, onClose, onSaved, user }: { employee?: Employ
       }
       
       if (error) {
-        console.error("Supabase save staff error:", error);
         toast.error("خطأ في الحفظ: " + error);
         setSaving(false);
         return;
@@ -418,8 +417,6 @@ function EmployeeModal({ employee, onClose, onSaved, user }: { employee?: Employ
       const { error: scheduleError } = await replaceStaffShiftSchedules(staffId!, scheduleRecords);
       
       if (scheduleError) {
-        console.error("Error creating shift schedules:", scheduleError);
-        console.error("Error details:", scheduleError.message, scheduleError.details, scheduleError.hint, scheduleError.code);
         toast.error("تم حفظ الموظف لكن حدث خطأ في حفظ المواعيد: " + scheduleError.message);
       }
 
@@ -438,12 +435,11 @@ function EmployeeModal({ employee, onClose, onSaved, user }: { employee?: Employ
           );
         }
       } catch (logError) {
-        console.warn("[team activity log skipped]", logError);
+        // Activity log skipped silently
       }
       onSaved();
       onClose();
     } catch (err) {
-      console.error("Unexpected error:", err);
       toast.error("حدث خطأ غير متوقع أثناء الحفظ");
     }
     setSaving(false);

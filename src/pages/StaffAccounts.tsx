@@ -665,7 +665,6 @@ export default function StaffAccounts() {
 
         if (error) {
           errorCount++;
-          console.error(`Error creating account for ${member.name}:`, error);
         } else {
           successCount++;
           createdAccounts.push({
@@ -727,7 +726,6 @@ export default function StaffAccounts() {
       setSavingId(null);
 
       if (error) {
-        console.error("[staff permissions]", error);
         toast.error(
           "تعذر حفظ الصلاحيات. تأكد من تشغيل SQL الخاص بحسابات الموظفين.",
         );
@@ -777,7 +775,6 @@ export default function StaffAccounts() {
       setSavingId(null);
 
       if (error) {
-        console.error("[reset staff password]", error);
         toast.error(
           "تعذر تغيير كلمة المرور. شغّل migration حسابات الموظفين أولًا.",
         );

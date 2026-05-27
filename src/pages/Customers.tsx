@@ -87,7 +87,7 @@ export default function Customers() {
     try {
       setStats(await getCustomerStats());
     } catch (err) {
-      console.error("[customers] stats error:", err);
+      // Stats load failed silently
     }
   }, []);
 
@@ -467,7 +467,6 @@ async function saveCustomerServiceNotes(customer: Customer, notes: string, flags
   }
 
   if (!saved && lastError) {
-    console.error("[customer notes] save failed:", lastError);
     throw lastError instanceof Error ? lastError : new Error("تعذر حفظ ملاحظات العميل. تأكد من تشغيل SQL الخاص بملاحظات العملاء.");
   }
   return { ...customer, ...(saved || {}), notes: mergedNotes } as Customer;
@@ -519,7 +518,6 @@ function CustomerModal({
         if (mounted) setDetails(result);
       })
       .catch((error) => {
-        console.error("[customer details] error:", error);
         if (mounted) setDetails(null);
       })
       .finally(() => {
@@ -691,7 +689,6 @@ function CustomerModal({
                   onSaved(updated);
                   toast.success("تم حفظ ملاحظات العميل وعلامات التعامل");
                 } catch (error) {
-                  console.error("[customer notes] save error:", error);
                   toast.error(error instanceof Error ? error.message : "تعذر حفظ الملاحظات");
                 } finally {
                   setSavingNotes(false);

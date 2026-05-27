@@ -590,7 +590,6 @@ export default function StagnantMedicines() {
       }
       setRemoteCustomerOptions(Array.from(unique.values()));
     } catch (error) {
-      console.error("[stagnant customer search]", error);
       toast.error("تعذر البحث في كل العملاء. راجع الاتصال أو أعمدة العملاء في Supabase.");
     } finally {
       setCustomerSearchLoading(false);
@@ -1173,7 +1172,7 @@ export default function StagnantMedicines() {
           toast.success(`تم تسجيل الصرف وإضافة ${totalIncentive} نقطة للدكتور`);
         }
       } catch (e) {
-        console.warn("Failed to add points for dispense:", e);
+        // Points addition failed silently
       }
     } else {
       toast.success("تم تسجيل صرف الصنف الراكد");

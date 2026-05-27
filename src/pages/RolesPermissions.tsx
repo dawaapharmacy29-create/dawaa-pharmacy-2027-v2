@@ -582,7 +582,7 @@ export default function RolesPermissions() {
         safeActorId(),
       );
 
-      if (error) console.warn("[user_permissions sync skipped]", error.message);
+      // user_permissions sync skipped silently
 
       toast.success(allowed ? "تم تفعيل الصلاحية" : "تم إيقاف الصلاحية");
       await logActivity(
