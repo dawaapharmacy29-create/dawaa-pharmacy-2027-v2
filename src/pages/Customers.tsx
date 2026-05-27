@@ -605,6 +605,14 @@ function CustomerModal({
               value: formatCurrency(totalPurchases),
             },
             {
+              label: "متوسط تكرار الشراء شهريًا",
+              value: details?.avgMonthlyVisits != null ? `${details.avgMonthlyVisits} مرة` : "-",
+            },
+            {
+              label: "مرات الشراء هذا الشهر",
+              value: details?.currentMonthVisits != null ? `${details.currentMonthVisits} مرة` : "-",
+            },
+            {
               label: "القيمة العمرية (CLV)",
               value: clv.value ? clv.label : "غير كافٍ لحساب القيمة العمرية",
             },

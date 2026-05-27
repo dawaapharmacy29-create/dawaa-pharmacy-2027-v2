@@ -65,6 +65,8 @@ export interface CustomerDetails {
   topDoctor: string | null;
   lastServiceDoctor: string | null;
   lastFollowupReport: string | null;
+  avgMonthlyVisits: number;
+  currentMonthVisits: number;
 }
 
 function normalizeLimit(limit?: number) {
@@ -588,6 +590,23 @@ export async function getCustomerDetails(customer: Customer): Promise<CustomerDe
   const topDoctor = [...doctorScores.entries()]
     .sort((a, b) => (b[1].total - a[1].total) || (b[1].count - a[1].count))[0]?.[0] || null;
 
+  // حساب متوسط تكرار الشراء الشهري وعدد مرات الشراء في الشهر الحالي
+  const monthlyVisitCounts = new Map<string, number>();
+  for (const inv of invoices) {
+    if (!inv.invoice_date) continue;
+    const key = inv.invoice_date.slice(0, 7); // YYYY-MM
+    monthlyVisitCounts.set(key, (monthlyVisitCounts.get(key) || 0) + 1);
+  }
+  const now = new Date();
+  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const currentMonthVisits = monthlyVisitCounts.get(currentMonthKey) || 0;
+  const previousMonthCounts = [...monthlyVisitCounts.entries()]
+    .filter(([month]) => month !== currentMonthKey)
+    .map(([, count]) => count);
+  const avgMonthlyVisits = previousMonthCounts.length
+    ? Math.round((previousMonthCounts.reduce((sum, c) => sum + c, 0) / previousMonthCounts.length) * 10) / 10
+    : 0;
+
   const followups = ((followupResult.data ?? []) as Record<string, unknown>[]).map((row) => ({
     id: String(readFirst(row, ["id"], "")),
     status: readFirst(row, ["status"], null) as string | null,
@@ -606,6 +625,8 @@ export async function getCustomerDetails(customer: Customer): Promise<CustomerDe
     topDoctor,
     lastServiceDoctor: lastFollowup?.assigned_to || null,
     lastFollowupReport: lastFollowup?.notes || null,
+    avgMonthlyVisits,
+    currentMonthVisits,
   };
 }
 
