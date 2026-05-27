@@ -199,7 +199,7 @@ export default function Dashboard() {
     [series],
   );
 
-  const periodSales = totalSalesAmount(invoiceRows);
+  const periodSales = invoiceRows.reduce((sum, row) => sum + Number(row.gross_amount || row.amount || 0), 0);
   const growth = salesGrowthPercent(series);
 
   const { data: employees } = useSupabaseQuery<Employee>({
@@ -479,7 +479,7 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="mt-3 text-xs text-slate-400">
-          المبيعات والرسم في اللوحة محسوبين من {periodStart} إلى {periodEnd}.
+          المبيعات والرسم في اللوحة محسوبين من {periodStart} إلى {periodEnd} باستخدام جدول sales_invoices كمصدر أساسي.
         </div>
       </div>
 

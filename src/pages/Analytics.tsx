@@ -56,7 +56,7 @@ const dayKey = (row: SalesInvoiceRow) =>
 const dateTimeOf = (row: SalesInvoiceRow) =>
   row.analysis_datetime || row.invoice_datetime || row.close_datetime || row.close_time || row.invoice_date || "";
 
-const amountOf = (row: SalesInvoiceRow) => getSalesValue(row as unknown as Record<string, unknown>);
+const amountOf = (row: SalesInvoiceRow) => Number(row.gross_amount ?? row.amount ?? 0) || 0;
 const invoiceGrossOf = (row: SalesInvoiceRow) => Number(row.gross_amount ?? row.amount ?? 0) || 0;
 const invoiceDiscountedOf = (row: SalesInvoiceRow) => Number(row.discounted_amount ?? row.net_amount ?? row.amount ?? 0) || 0;
 const discountOf = (row: SalesInvoiceRow) => Number(row.discount_amount ?? 0) || 0;
@@ -163,15 +163,50 @@ export default function Analytics() {
       return true;
     });
   }, [bounds, invoices, selectedBranch, selectedDate, selectedDoctor, selectedShift, selectedType]);
-  const agg = useMemo(() => aggregateInvoiceAnalytics(filteredInvoices, bounds), [filteredInvoices, bounds]);
-  const dayAgg = useMemo(() => aggregateInvoiceAnalytics(dayInvoices, bounds), [dayInvoices, bounds]);
-
   const periodInvoices = useMemo(() => {
     return invoices.filter((row) => {
       const day = dayKey(row);
       return isDateInRange(day, periodStart, periodEnd);
     });
   }, [invoices, periodEnd, periodStart]);
+
+  const agg = useMemo(() => aggregateInvoiceAnalytics(filteredInvoices, bounds), [filteredInvoices, bounds]);
+  const dayAgg = useMemo(() => aggregateInvoiceAnalytics(dayInvoices, bounds), [dayInvoices, bounds]);
+
+  // Diagnostics for debugging
+  useEffect(() => {
+    if (periodInvoices.length > 0) {
+      const dates = periodInvoices.map(dayKey).filter(Boolean).sort();
+      const grossSum = periodInvoices.reduce((sum, row) => sum + Number(row.gross_amount || 0), 0);
+      const netSum = periodInvoices.reduce((sum, row) => sum + Number(row.net_amount || 0), 0);
+      const totalSum = periodInvoices.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+      const discountSum = periodInvoices.reduce((sum, row) => sum + Number(row.discount_amount || 0), 0);
+      console.log("Analytics Diagnostics:", {
+        invoiceCount: periodInvoices.length,
+        minDate: dates[0],
+        maxDate: dates[dates.length - 1],
+        grossSum,
+        netSum,
+        totalSum,
+        discountSum,
+        branchCounts: periodInvoices.reduce((acc, row) => {
+          const branch = row.branch || "غير محدد";
+          acc[branch] = (acc[branch] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>),
+        shiftCounts: periodInvoices.reduce((acc, row) => {
+          const shift = getShiftFromDateTime(dateTimeOf(row), bounds);
+          acc[shift] = (acc[shift] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>),
+        typeCounts: periodInvoices.reduce((acc, row) => {
+          const type = row.invoice_type || "غير محدد";
+          acc[type] = (acc[type] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>),
+      });
+    }
+  }, [periodInvoices, bounds]);
 
   const doctorRows = useMemo(() => {
     return Object.entries(agg.perDoctor)
@@ -387,7 +422,7 @@ export default function Analytics() {
     toast.success("تم حفظ حدود الشيفتات");
   };
 
-  const saveBranchTarget = async (row: ReturnType<typeof targetRows>[number]) => {
+  const saveBranchTarget = async (row: { branch: string; targetId: string; targetAmount: number }) => {
     const payload = { branch_name: row.branch, target_amount: row.targetAmount, cycle_start_day: 26, active: true, updated_at: new Date().toISOString() };
     const query = row.targetId
       ? supabase.from("branch_sales_targets").update(payload).eq("id", row.targetId)

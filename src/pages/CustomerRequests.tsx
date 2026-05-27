@@ -203,6 +203,32 @@ export default function CustomerRequests() {
     }
   };
 
+  const handleClearFollowupHistory = async () => {
+    const confirmed = window.confirm("⚠️ تحذير شديد: سيتم حذف سجل المتابعات بالكامل من الجداول التالية:\n\n• customer_request_events\n• customer_requests\n• customer_notes\n• customer_flags\n\nلن يتم حذف بيانات العملاء من جدول customers.\n\nهل أنت متأكد تمامًا من أنك تريد مسح سجل المتابعات؟");
+    if (!confirmed) return;
+    setSaving(true);
+    try {
+      const { error: eventsError } = await supabase.from("customer_request_events").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      if (eventsError) throw new Error(eventsError.message);
+      
+      const { error: requestsError } = await supabase.from("customer_requests").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      if (requestsError) throw new Error(requestsError.message);
+      
+      const { error: notesError } = await supabase.from("customer_notes").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      if (notesError) throw new Error(notesError.message);
+      
+      const { error: flagsError } = await supabase.from("customer_flags").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      if (flagsError) throw new Error(flagsError.message);
+      
+      toast.success("تم مسح سجل المتابعات بالكامل");
+      await loadRequests();
+    } catch (error) {
+      toast.error(`تعذر مسح سجل المتابعات: ${(error as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -229,6 +255,11 @@ export default function CustomerRequests() {
         <button onClick={loadRequests} className="btn-secondary flex items-center gap-2">
           <RefreshCw size={16} /> تحديث
         </button>
+        {user?.role === "مدير عام" && (
+          <button onClick={handleClearFollowupHistory} disabled={saving} className="btn-danger flex items-center gap-2">
+            <AlertTriangle size={16} /> مسح سجل المتابعات
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
@@ -291,7 +322,7 @@ export default function CustomerRequests() {
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
         <div className="space-y-2 max-h-[calc(100vh-330px)] overflow-y-auto">
           {requests.length === 0 ? (
-            <div className="stat-card text-center py-12 text-slate-400">لا توجد طلبات مطابقة للبحث الحالي</div>
+            <div className="stat-card text-center py-12 text-slate-400">لا توجد متابعات مسجلة حاليًا</div>
           ) : (
             requests.map((request) => (
               <button

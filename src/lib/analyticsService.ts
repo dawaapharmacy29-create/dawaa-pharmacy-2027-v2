@@ -54,7 +54,7 @@ export function firstNumericValue(row: SalesInvoiceLike, keys: string[]): number
 }
 
 export function getSalesValue(row: SalesInvoiceLike) {
-  return firstNumericValue(row, ["net_amount", "discounted_amount", "amount", "gross_amount", "invoice_total", "net_total", "total", "value", "invoice_value"]);
+  return firstNumericValue(row, ["gross_amount", "amount", "invoice_total", "total", "net_amount", "discounted_amount", "value", "invoice_value"]);
 }
 
 export function getGrossSalesValue(row: SalesInvoiceLike) {
@@ -136,3 +136,32 @@ export async function getSalesTotals(filters: SalesAnalyticsFilters = {}) {
   return getSalesTotalsFromRows(rows, filters);
 }
 
+export function getSalesOverview(filters: SalesAnalyticsFilters = {}) {
+  return {
+    // يمكن إضافة منطق إضافي هنا
+  };
+}
+
+export function getShiftAnalysis(filters: SalesAnalyticsFilters = {}) {
+  return {
+    // يمكن إضافة منطق إضافي هنا
+  };
+}
+
+export function getDoctorAnalysis(filters: SalesAnalyticsFilters = {}) {
+  return {
+    // يمكن إضافة منطق إضافي هنا
+  };
+}
+
+export function getCustomerAnalysis(filters: SalesAnalyticsFilters = {}) {
+  return {
+    // يمكن إضافة منطق إضافي هنا
+  };
+}
+
+export function getDashboardSummary(filters: SalesAnalyticsFilters = {}) {
+  return {
+    // يمكن إضافة منطق إضافي هنا
+  };
+}

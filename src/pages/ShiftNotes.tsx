@@ -42,6 +42,8 @@ interface ShiftNote {
   customer_name: string | null;
   customer_code?: string | null;
   customer_phone: string | null;
+  whatsapp_phone?: string | null;
+  whatsapp_link?: string | null;
   invoice_no: string | null;
   author_id: string | null;
   author_name: string | null;
@@ -151,6 +153,8 @@ const emptyForm = {
   customer_name: "",
   customer_code: "",
   customer_phone: "",
+  whatsapp_phone: "",
+  whatsapp_link: "",
   invoice_no: "",
   due_at: "",
   assigned_to_name: "",
@@ -221,8 +225,65 @@ export default function ShiftNotes() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [form, setForm] = useState({ ...emptyForm, due_at: todayInput() });
   const notesSectionRef = useRef<HTMLDivElement | null>(null);
+  const [customerSearchQuery, setCustomerSearchQuery] = useState("");
+  const [customerSearchResults, setCustomerSearchResults] = useState<Record<string, unknown>[]>([]);
+  const [selectedCustomer, setSelectedCustomer] = useState<Record<string, unknown> | null>(null);
+  const [showCustomerSearch, setShowCustomerSearch] = useState(false);
 
   const canManage = isAdmin || /مدير|admin/i.test(user?.role || "");
+
+  const searchCustomers = async (query: string) => {
+    if (!query.trim() || query.length < 2) {
+      setCustomerSearchResults([]);
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from("customers")
+        .select("*")
+        .or(`name.ilike.%${query}%,customer_code.ilike.%${query}%,phone.ilike.%${query}%,whatsapp_phone.ilike.%${query}%,address.ilike.%${query}%`)
+        .limit(10);
+      if (error) throw error;
+      setCustomerSearchResults(data || []);
+    } catch (error) {
+      console.error("Error searching customers:", error);
+      setCustomerSearchResults([]);
+    }
+  };
+
+  const selectCustomer = (customer: Record<string, unknown>) => {
+    setSelectedCustomer(customer);
+    setForm((f) => ({
+      ...f,
+      customer_name: String(customer.name || customer.customer_name || ""),
+      customer_code: String(customer.customer_code || customer.code || ""),
+      customer_phone: String(customer.phone || customer.customer_phone || ""),
+      whatsapp_phone: String(customer.whatsapp_phone || ""),
+      whatsapp_link: String(customer.whatsapp_link || ""),
+      branch: customer.branch ? String(customer.branch) : f.branch,
+    }));
+    setCustomerSearchQuery("");
+    setCustomerSearchResults([]);
+    setShowCustomerSearch(false);
+  };
+
+  const clearSelectedCustomer = () => {
+    setSelectedCustomer(null);
+    setForm((f) => ({
+      ...f,
+      customer_code: "",
+    }));
+  };
+
+  const useAsUnregisteredCustomer = () => {
+    setSelectedCustomer(null);
+    setForm((f) => ({
+      ...f,
+      customer_code: "",
+    }));
+    setCustomerSearchResults([]);
+    setShowCustomerSearch(false);
+  };
 
   const loadNotes = async () => {
     setLoading(true);
@@ -261,6 +322,17 @@ export default function ShiftNotes() {
     return () => window.clearTimeout(timer);
   }, [search]);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (customerSearchQuery.trim()) {
+        searchCustomers(customerSearchQuery);
+      } else {
+        setCustomerSearchResults([]);
+      }
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [customerSearchQuery]);
+
   const addLog = async (noteId: string, action: string, details?: string) => {
     await supabase.from("shift_note_logs").insert({
       note_id: noteId,
@@ -293,6 +365,10 @@ export default function ShiftNotes() {
   const resetForm = () => {
     setEditing(null);
     setForm({ ...emptyForm, due_at: todayInput() });
+    setSelectedCustomer(null);
+    setCustomerSearchQuery("");
+    setCustomerSearchResults([]);
+    setShowCustomerSearch(false);
   };
 
   const saveNote = async () => {
@@ -303,6 +379,7 @@ export default function ShiftNotes() {
     setSaving(true);
     const selectedStaff = staffChoices.find((item) => item.name === form.assigned_to_name);
     const payload = {
+      customer_id: selectedCustomer ? String(selectedCustomer.id) : null,
       title: form.title.trim(),
       details: form.details.trim() || null,
       note_kind: form.note_kind,
@@ -312,6 +389,8 @@ export default function ShiftNotes() {
       customer_name: form.customer_name.trim() || null,
       customer_code: form.customer_code.trim() || null,
       customer_phone: form.customer_phone.trim() || null,
+      whatsapp_phone: form.whatsapp_phone?.trim() || null,
+      whatsapp_link: form.whatsapp_link?.trim() || null,
       invoice_no: form.invoice_no.trim() || null,
       due_at: form.due_at ? new Date(form.due_at).toISOString() : null,
       assigned_to_id: selectedStaff?.id || null,
@@ -565,6 +644,8 @@ export default function ShiftNotes() {
 
   const startEdit = (note: ShiftNote) => {
     setEditing(note);
+    const hasCustomerCode = Boolean(note.customer_code);
+    setSelectedCustomer(hasCustomerCode ? { id: note.customer_id, name: note.customer_name, customer_code: note.customer_code, phone: note.customer_phone, whatsapp_phone: note.whatsapp_phone, whatsapp_link: note.whatsapp_link, branch: note.branch } : null);
     setForm({
       title: note.title || "",
       details: note.details || "",
@@ -575,6 +656,8 @@ export default function ShiftNotes() {
       customer_name: note.customer_name || "",
       customer_code: note.customer_code || "",
       customer_phone: note.customer_phone || "",
+      whatsapp_phone: note.whatsapp_phone || "",
+      whatsapp_link: note.whatsapp_link || "",
       invoice_no: note.invoice_no || "",
       due_at: note.due_at ? new Date(note.due_at).toISOString().slice(0, 16) : todayInput(),
       assigned_to_name: note.assigned_to_name || "",
@@ -589,6 +672,9 @@ export default function ShiftNotes() {
       repeat_days: note.repeat_days || 1,
       recurrence_times: (note.recurrence_times || ["09:00", "21:00"]).join(","),
     });
+    setCustomerSearchQuery("");
+    setCustomerSearchResults([]);
+    setShowCustomerSearch(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -711,13 +797,51 @@ export default function ShiftNotes() {
             <option>فرع الشامي</option>
             <option>كل الفروع</option>
           </select>
-          <input className="input-dark" placeholder="ابحث باسم/كود العميل (يدعم *)" value={form.customer_name} onChange={(event) => {
-            const q = event.target.value;
-            const raw = q.toLowerCase().replace(/\*/g, ".*");
-            const regex = new RegExp(raw);
-            const match = (customerRows || []).find((row) => regex.test(String(row.name || row.customer_name || "").toLowerCase()) || regex.test(String(row.customer_code || row.code || "").toLowerCase()));
-            setForm((f) => ({ ...f, customer_name: q, customer_code: String(match?.customer_code || match?.code || ""), customer_phone: match ? String(match.phone || match.customer_phone || f.customer_phone || "") : f.customer_phone }));
-          }} />
+          <div className="lg:col-span-2 relative">
+            <input
+              className="input-dark"
+              placeholder="ابحث باسم/كود/هاتف العميل..."
+              value={customerSearchQuery || form.customer_name}
+              onChange={(event) => {
+                const q = event.target.value;
+                setCustomerSearchQuery(q);
+                setForm((f) => ({ ...f, customer_name: q }));
+                setShowCustomerSearch(true);
+              }}
+              onFocus={() => setShowCustomerSearch(true)}
+            />
+            {showCustomerSearch && customerSearchResults.length > 0 && (
+              <div className="absolute z-50 w-full mt-1 bg-[#1B2B4B] border border-[#2d4063] rounded-xl max-h-60 overflow-y-auto shadow-xl">
+                {customerSearchResults.map((customer) => (
+                  <button
+                    key={String(customer.id)}
+                    type="button"
+                    className="w-full text-right px-4 py-3 hover:bg-teal-600/20 transition-colors border-b border-[#2d4063] last:border-0"
+                    onClick={() => selectCustomer(customer)}
+                  >
+                    <div className="text-white font-medium">{String(customer.name || customer.customer_name || "بدون اسم")}</div>
+                    <div className="text-slate-400 text-xs mt-1">
+                      كود: {String(customer.customer_code || customer.code || "بدون كود")} — {String(customer.phone || customer.customer_phone || customer.whatsapp_phone || "بدون هاتف")} — {String(customer.branch || "بدون فرع")}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          {selectedCustomer && (
+            <div className="lg:col-span-2 flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/25 rounded-xl px-4 py-2">
+              <span className="text-emerald-300 text-sm font-medium">عميل مسجل</span>
+              <span className="text-slate-300 text-sm">— كود: {form.customer_code}</span>
+              <span className="text-slate-300 text-sm">— {form.branch}</span>
+              <button type="button" onClick={clearSelectedCustomer} className="text-slate-400 hover:text-red-300 text-xs">إلغاء</button>
+            </div>
+          )}
+          {!selectedCustomer && form.customer_name && (
+            <div className="lg:col-span-2 flex items-center gap-2 bg-amber-500/10 border border-amber-500/25 rounded-xl px-4 py-2">
+              <span className="text-amber-300 text-sm font-medium">عميل غير مسجل</span>
+              <button type="button" onClick={useAsUnregisteredCustomer} className="text-slate-400 hover:text-teal-300 text-xs">استخدام كعميل غير مسجل</button>
+            </div>
+          )}
           <input className="input-dark" placeholder="رقم تليفون العميل" value={form.customer_phone} onChange={(event) => setForm((f) => ({ ...f, customer_phone: event.target.value }))} />
           <input className="input-dark" placeholder="رقم الفاتورة إن وجد" value={form.invoice_no} onChange={(event) => setForm((f) => ({ ...f, invoice_no: event.target.value }))} />
           <input className="input-dark" type="datetime-local" value={form.due_at} onChange={(event) => setForm((f) => ({ ...f, due_at: event.target.value }))} />
@@ -832,8 +956,25 @@ export default function ShiftNotes() {
                   <button onClick={() => loadDetails(note)} className="btn-secondary text-sm">عرض التفاصيل</button>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4 text-sm">
-                  <Info icon={UserRound} label="العميل" value={note.customer_name || "لا يوجد"} />
-                  <Info icon={Phone} label="الهاتف" value={note.customer_phone || "لا يوجد"} />
+                  <div className="col-span-1 md:col-span-2">
+                    <div className="flex items-center gap-2 mb-2">
+                      <UserRound size={14} className="text-slate-400" />
+                      <span className="text-slate-400">العميل:</span>
+                      <span className="text-white font-medium">{note.customer_name || "لا يوجد"}</span>
+                      {note.customer_code ? (
+                        <span className="badge-success text-xs">عميل مسجل</span>
+                      ) : (
+                        <span className="badge-warning text-xs">عميل غير مسجل</span>
+                      )}
+                    </div>
+                    {note.customer_code && (
+                      <div className="flex items-center gap-4 text-xs text-slate-400 mr-6">
+                        <span>كود: {note.customer_code}</span>
+                        <span>الفرع: {note.branch || "غير محدد"}</span>
+                        <span>الهاتف: {note.customer_phone || "لا يوجد"}</span>
+                      </div>
+                    )}
+                  </div>
                   <Info icon={Clock} label="وقت التنفيذ" value={dateLabel(note.due_at)} />
                   <Info icon={UserRound} label="المسؤول" value={note.assigned_to_name || "غير محدد"} />
                   <Info icon={FileText} label="رقم الفاتورة" value={note.invoice_no || "لا يوجد"} />
@@ -849,7 +990,7 @@ export default function ShiftNotes() {
                   <button onClick={() => startEdit(note)} disabled={!canManage && note.author_name !== user?.name} className="btn-secondary text-sm flex items-center gap-2"><Edit3 size={15} /> تعديل</button>
                   {phone && <a href={`tel:${phone}`} className="btn-secondary text-sm flex items-center gap-2"><Phone size={15} /> اتصال</a>}
                   {phone && <button onClick={() => navigator.clipboard?.writeText(phone)} className="btn-secondary text-sm flex items-center gap-2"><Copy size={15} /> نسخ الرقم</button>}
-                  {phone && <a href={generateWhatsAppLink(phone, `حضرتك مع صيدليات دواء، بنتابع مع حضرتك بخصوص الطلب / المتابعة الخاصة بحضرتك.`)} target="_blank" rel="noreferrer" className="btn-secondary text-sm flex items-center gap-2"><MessageSquare size={15} /> واتساب</a>}
+                  {phone && <a href={generateWhatsAppLink(phone, `حضرتك مع صيدليات دواء، بنتابع مع حضرتك بخصوص الملاحظة المسجلة لدينا.`)} target="_blank" rel="noreferrer" className="btn-secondary text-sm flex items-center gap-2"><MessageSquare size={15} /> واتساب</a>}
                 </div>
               </div>
             );
