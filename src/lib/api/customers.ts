@@ -150,15 +150,15 @@ function applyCustomerFilters(query: CustomerQueryBuilder, options: GetCustomers
   if (options.branch && options.branch !== ALL_FILTER) query = query.in("branch", branchFilterValues(options.branch));
   if (options.type && options.type !== ALL_FILTER) {
     const normalizedType = normalizeArabicType(options.type);
-    // استخدام OR لمطابقة جميع المتغيرات الممكنة للتصنيف
+    // استخدام IN لمطابقة جميع المتغيرات الممكنة للتصنيف
     if (normalizedType === "مهم جدًا") {
-      query = query.or("segment.eq.مهم جدًا,segment.eq.مهم جدا,segment.eq.مهم جداً,segment.eq.VIP,segment.eq.vip,segment.eq.Very Important,segment.eq.very important,type.eq.مهم جدًا,type.eq.مهم جدا,type.eq.مهم جداً");
+      query = query.or("segment.in.(مهم جدًا,مهم جدا,مهم جداً,VIP,vip,Very Important,very important),type.in.(مهم جدًا,مهم جدا,مهم جداً)");
     } else if (normalizedType === "مهم") {
-      query = query.or("segment.eq.مهم,segment.eq.important,segment.eq.Important,type.eq.مهم,type.eq.important");
+      query = query.or("segment.in.(مهم,important,Important),type.in.(مهم,important)");
     } else if (normalizedType === "متوسط") {
-      query = query.or("segment.eq.متوسط,segment.eq.medium,segment.eq.Medium,type.eq.متوسط,type.eq.medium");
+      query = query.or("segment.in.(متوسط,medium,Medium),type.in.(متوسط,medium)");
     } else if (normalizedType === "عادي") {
-      query = query.or("segment.eq.عادي,segment.eq.normal,segment.eq.Normal,segment.eq.regular,segment.eq.Regular,type.eq.عادي,type.eq.normal,type.eq.regular");
+      query = query.or("segment.in.(عادي,normal,Normal,regular,Regular),type.in.(عادي,normal,regular)");
     } else {
       query = query.eq("segment", normalizedType);
     }
@@ -307,11 +307,15 @@ async function getFallbackCustomersBySearch(options: GetCustomersOptions, limit:
 
   for (const term of terms) {
     for (const column of FALLBACK_SEARCH_COLUMNS) {
-      const { data, error } = await supabase
+      let query = supabase
         .from("customers")
         .select("*")
         .ilike(column, `%${term}%`)
         .range(0, limit + offset - 1);
+
+      query = applyCustomerFilters(query, options);
+
+      const { data, error } = await query;
 
       if (error) {
         if (isMissingColumnError(error)) continue;
@@ -361,20 +365,26 @@ async function getFallbackCustomers(options: GetCustomersOptions, limit: number,
   const searchResult = await getFallbackCustomersBySearch(options, limit, offset);
   if (searchResult) return searchResult;
 
-  const { data, error, count } = await supabase
+  let query = supabase
     .from("customers")
     .select("*", { count: "exact" })
     .range(offset, offset + limit - 1);
 
+  query = applyCustomerFilters(query, options);
+
+  const { data, error, count } = await query;
+
   if (error) throw new Error(error.message);
   const mapped = ((data ?? []) as Record<string, unknown>[]).map(normalizeCustomer);
+
+  // فلترة يدوية إضافية للتأكد من مطابقة التصنيف
   const filtered = mapped.filter((customer) => {
     const branchMatch = !options.branch || options.branch === ALL_FILTER || customer.branch === options.branch;
     const typeMatch = !options.type || options.type === ALL_FILTER || normalizeArabicType(customer.type || customer.segment) === normalizeArabicType(options.type);
     return branchMatch && typeMatch;
   });
 
-  return { customers: filtered, count: count ?? 0, limit, offset };
+  return { customers: filtered, count: filtered.length, limit, offset };
 }
 
 async function countCustomers(options: GetCustomersOptions = {}) {

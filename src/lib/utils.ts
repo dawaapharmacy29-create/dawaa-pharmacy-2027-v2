@@ -73,6 +73,7 @@ export function matchesOrderedSegments(haystack: string, needleRaw: string): boo
 
 export function classifyCustomer(avgMonthly: number): { label: string; color: string; bg: string } {
   avgMonthly = toNumber(avgMonthly);
+  // مهم جدًا: أكثر من 8000 شهريًا | مهم: 4000-8000 | متوسط: 1500-4000 | عادي: أقل من 1500
   if (avgMonthly >= 8000) return { label: "مهم جدًا", color: "text-purple-400", bg: "bg-purple-500/15 border-purple-500/25" };
   if (avgMonthly >= 4000) return { label: "مهم", color: "text-amber-400", bg: "bg-amber-500/15 border-amber-500/25" };
   if (avgMonthly >= 1500) return { label: "متوسط", color: "text-blue-400", bg: "bg-blue-500/15 border-blue-500/25" };
