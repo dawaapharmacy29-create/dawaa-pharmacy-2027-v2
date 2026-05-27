@@ -7,6 +7,7 @@ import {
   normalizeCustomerPriority,
   normalizeCustomerSegment,
   normalizeCustomerStatus,
+  enrichCustomersFromInvoices,
 } from "@/lib/customerAnalyticsService";
 import type { Customer } from "@/types/database";
 import { normalizeBranchName } from "@/lib/branch";
@@ -137,9 +138,17 @@ function normalizeCustomer(record: Record<string, unknown>): Customer {
   } as Customer;
 }
 
+function segmentFilterValues(type: string): string[] {
+  const normalized = normalizeArabicType(type);
+  if (normalized === "مهم جدًا") return ["مهم جدًا", "مهم جدا", "مهم جداً", "VIP", "vip", "Very Important", "very important"];
+  if (normalized === "مهم") return ["مهم", "important", "Important"];
+  if (normalized === "متوسط") return ["متوسط", "medium", "Medium"];
+  return ["عادي", "normal", "Normal", "regular", "Regular", ""];
+}
+
 function applyCustomerFilters(query: CustomerQueryBuilder, options: GetCustomersOptions) {
   if (options.branch && options.branch !== ALL_FILTER) query = query.in("branch", branchFilterValues(options.branch));
-  if (options.type && options.type !== ALL_FILTER) query = query.eq("segment", normalizeArabicType(options.type));
+  if (options.type && options.type !== ALL_FILTER) query = query.in("segment", segmentFilterValues(options.type));
   return query;
 }
 
@@ -184,7 +193,7 @@ async function rankedCustomerSearch(options: GetCustomersOptions, limit: number,
         list = list.filter((customer) => {
           const branchMatch = !options.branch || options.branch === ALL_FILTER || customer.branch === options.branch;
           const typeMatch =
-            !options.type || options.type === ALL_FILTER || normalizeArabicType(customer.type || customer.segment) === normalizeArabicType(options.type);
+            !options.type || options.type === ALL_FILTER || normalizeArabicType(customer.type || customer.segment || customer.category) === normalizeArabicType(options.type);
           return branchMatch && typeMatch;
         });
         const total = list.length;
@@ -336,7 +345,16 @@ async function getAnalysisCustomers(options: GetCustomersOptions, limit: number,
 
 async function getFallbackCustomers(options: GetCustomersOptions, limit: number, offset: number) {
   const searchResult = await getFallbackCustomersBySearch(options, limit, offset);
-  if (searchResult) return searchResult;
+  if (searchResult) {
+    // إثراء العملاء بالتصنيف الحقيقي من الفواتير
+    try {
+      const invoices = await fetchSalesInvoices();
+      const enriched = enrichCustomersFromInvoices(searchResult.customers as Record<string, unknown>[], invoices as Record<string, unknown>[]);
+      return { ...searchResult, customers: enriched as Customer[] };
+    } catch {
+      return searchResult;
+    }
+  }
 
   const { data, error, count } = await supabase
     .from("customers")
@@ -351,7 +369,14 @@ async function getFallbackCustomers(options: GetCustomersOptions, limit: number,
     return branchMatch && typeMatch;
   });
 
-  return { customers: filtered, count: count ?? 0, limit, offset };
+  // إثراء العملاء بالتصنيف الحقيقي من الفواتير
+  try {
+    const invoices = await fetchSalesInvoices();
+    const enriched = enrichCustomersFromInvoices(filtered as Record<string, unknown>[], invoices as Record<string, unknown>[]);
+    return { customers: enriched as Customer[], count: count ?? 0, limit, offset };
+  } catch {
+    return { customers: filtered, count: count ?? 0, limit, offset };
+  }
 }
 
 async function countCustomers(options: GetCustomersOptions = {}) {
@@ -491,7 +516,7 @@ export async function getCustomerStats(): Promise<CustomerStats> {
       safeCount(supabase
         .from("customers")
         .select("id", { count: "exact", head: true })
-        .in("segment", ["مهم جدًا", "مهم جدا", "VIP", "Very Important", "vip", "very important"])),
+        .in("segment", ["مهم جدًا", "مهم جدا", "مهم جداً", "VIP", "Very Important", "vip", "very important"])),
       safeCount(supabase
         .from("customers")
         .select("id", { count: "exact", head: true })
