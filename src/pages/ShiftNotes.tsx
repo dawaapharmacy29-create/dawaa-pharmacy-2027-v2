@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   AlertTriangle,
   CalendarClock,
@@ -39,6 +40,7 @@ interface ShiftNote {
   branch: string | null;
   customer_id?: string | null;
   customer_name: string | null;
+  customer_code?: string | null;
   customer_phone: string | null;
   invoice_no: string | null;
   author_id: string | null;
@@ -68,6 +70,9 @@ interface ShiftNote {
   resolution_required?: string | null;
   created_at: string | null;
   updated_at: string | null;
+  completed_by_name?: string | null;
+  deleted_at?: string | null;
+  deleted_by_name?: string | null;
 }
 
 interface ShiftNoteLog {
@@ -187,6 +192,7 @@ function statusClass(note: ShiftNote) {
   if (isOverdue(note)) return "bg-red-950/60 border-red-500/35 text-red-100";
   if (note.status === "completed") return "bg-emerald-500/10 border-emerald-400/25 text-emerald-200";
   if (note.status === "cancelled") return "bg-slate-500/10 border-slate-400/25 text-slate-300";
+  if (note.note_type === "nursing" || note.note_type === "medical") return "bg-amber-500/10 border-amber-400/25 text-amber-100";
   if (note.priority === "critical" || note.priority === "urgent") return "bg-red-500/10 border-red-400/25 text-red-100";
   if (note.note_type === "nursing") return "bg-amber-500/10 border-amber-300/30 text-amber-100";
   if (note.priority === "important") return "bg-amber-500/10 border-amber-400/25 text-amber-100";
@@ -196,6 +202,7 @@ function statusClass(note: ShiftNote) {
 export default function ShiftNotes() {
   const { user, isAdmin } = useAuth();
   const { data: staffRows } = useSupabaseQuery<Staff>({ table: "staff", realtimeEnabled: false });
+  const { data: customerRows } = useSupabaseQuery<Record<string, unknown>>({ table: "customers", realtimeEnabled: false, limit: 5000 });
   const staffChoices = useMemo(() => selectableStaffChoices(staffRows as unknown as Record<string, unknown>[]), [staffRows]);
   const [notes, setNotes] = useState<ShiftNote[]>([]);
   const [logs, setLogs] = useState<ShiftNoteLog[]>([]);
@@ -209,7 +216,6 @@ export default function ShiftNotes() {
   const [dimensionFilter, setDimensionFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [form, setForm] = useState({ ...emptyForm, due_at: todayInput() });
 
   const canManage = isAdmin || /مدير|admin/i.test(user?.role || "");
 
@@ -225,7 +231,9 @@ export default function ShiftNotes() {
       setLoading(false);
       return;
     }
-    setNotes((data || []) as ShiftNote[]);
+    const all = (data || []) as ShiftNote[];
+    setNotes(all.filter((n) => !n.deleted_at));
+    setDeletedNotes(all.filter((n) => Boolean(n.deleted_at)));
     setLoading(false);
   };
 
@@ -297,6 +305,7 @@ export default function ShiftNotes() {
       note_type: form.note_type,
       branch: form.branch,
       customer_name: form.customer_name.trim() || null,
+      customer_code: form.customer_code.trim() || null,
       customer_phone: form.customer_phone.trim() || null,
       invoice_no: form.invoice_no.trim() || null,
       due_at: form.due_at ? new Date(form.due_at).toISOString() : null,
@@ -335,6 +344,10 @@ export default function ShiftNotes() {
   };
 
   const updateStatus = async (note: ShiftNote, status: NoteStatus, reason?: string) => {
+    if (status === "completed" && !user?.name) {
+      toast.error("يجب تحديد الدكتور المنفذ قبل تنفيذ الملحوظة");
+      return;
+    }
     if (status === "completed" && note.note_kind === "action_task" && ["important", "urgent", "critical"].includes(note.priority || "") && !reason) {
       const completionNote = window.prompt("اكتب تعليق التنفيذ قبل إغلاق المهمة");
       if (!completionNote?.trim()) {
@@ -349,6 +362,9 @@ export default function ShiftNotes() {
       payload.closed_by_id = user?.id || null;
       payload.closed_by_name = user?.name || null;
       payload.closure_reason = reason || null;
+      if (status === "completed") {
+        payload.completed_by_name = user?.name || null;
+      }
     }
     const { data, error } = await supabase.from("shift_notes").update(payload).eq("id", note.id).select("*").single();
     if (error) {
@@ -480,6 +496,32 @@ export default function ShiftNotes() {
     await addLog(selected.id, "comment", comment.trim());
     setComment("");
     await loadDetails(selected);
+  };
+
+  const softDeleteNote = async (note: ShiftNote) => {
+    const ok = window.confirm(`حذف الملحوظة: ${note.title} ؟ يمكن استرجاعها لاحقًا.`);
+    if (!ok) return;
+    const { error } = await supabase.from("shift_notes").update({
+      deleted_at: new Date().toISOString(),
+      deleted_by_id: user?.id || null,
+      deleted_by_name: user?.name || null,
+      updated_at: new Date().toISOString(),
+    }).eq("id", note.id);
+    if (error) return toast.error(`تعذر حذف الملحوظة: ${error.message}`);
+    await addLog(note.id, "delete", `تم حذف الملحوظة بواسطة ${user?.name || "النظام"}`);
+    await loadNotes();
+  };
+
+  const restoreNote = async (note: ShiftNote) => {
+    const { error } = await supabase.from("shift_notes").update({
+      deleted_at: null,
+      deleted_by_id: null,
+      deleted_by_name: null,
+      updated_at: new Date().toISOString(),
+    }).eq("id", note.id);
+    if (error) return toast.error(`تعذر استرجاع الملحوظة: ${error.message}`);
+    await addLog(note.id, "restore", `تم استرجاع الملحوظة بواسطة ${user?.name || "النظام"}`);
+    await loadNotes();
   };
 
   const handoverOpenNotes = async () => {
@@ -623,13 +665,21 @@ export default function ShiftNotes() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-        <MiniStat label="ملاحظات اليوم" value={summary.today} active={filter === "today"} onClick={() => setFilter("today")} />
-        <MiniStat label="متأخرة" value={summary.overdue} danger active={filter === "overdue"} onClick={() => setFilter("overdue")} />
-        <MiniStat label="عاجلة/حرجة" value={summary.urgent} danger active={filter === "urgent"} onClick={() => setFilter("urgent")} />
-        <MiniStat label="بانتظار الاستلام" value={summary.pending} active={filter === "assigned_pending"} onClick={() => setFilter("assigned_pending")} />
-        <MiniStat label="متكررة اليوم" value={summary.recurring} active={filter === "recurring"} onClick={() => setFilter("recurring")} />
-        <MiniStat label="مكتملة اليوم" value={summary.completed} success active={filter === "completed_today"} onClick={() => setFilter("completed_today")} />
       </div>
+
+      {deletedNotes.length > 0 && (
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
+          <div className="section-title mb-2">الملاحظات المحذوفة (يمكن استرجاعها)</div>
+          <div className="space-y-2">
+            {deletedNotes.slice(0, 10).map((n) => (
+              <div key={n.id} className="flex items-center justify-between gap-3 text-sm">
+                <div className="text-slate-200">{n.title} - حذفها: {n.deleted_by_name || "غير محدد"}</div>
+                <button className="btn-secondary text-xs" onClick={() => restoreNote(n)}>استرجاع</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5 space-y-4">
         <div className="flex items-center justify-between">
@@ -655,7 +705,13 @@ export default function ShiftNotes() {
             <option>فرع الشامي</option>
             <option>كل الفروع</option>
           </select>
-          <input className="input-dark" placeholder="اسم العميل إن وجد" value={form.customer_name} onChange={(event) => setForm((f) => ({ ...f, customer_name: event.target.value }))} />
+          <input className="input-dark" placeholder="ابحث باسم/كود العميل (يدعم *)" value={form.customer_name} onChange={(event) => {
+            const q = event.target.value;
+            const raw = q.toLowerCase().replace(/\*/g, ".*");
+            const regex = new RegExp(raw);
+            const match = (customerRows || []).find((row) => regex.test(String(row.name || row.customer_name || "").toLowerCase()) || regex.test(String(row.customer_code || row.code || "").toLowerCase()));
+            setForm((f) => ({ ...f, customer_name: q, customer_code: String(match?.customer_code || match?.code || ""), customer_phone: match ? String(match.phone || match.customer_phone || f.customer_phone || "") : f.customer_phone }));
+          }} />
           <input className="input-dark" placeholder="رقم تليفون العميل" value={form.customer_phone} onChange={(event) => setForm((f) => ({ ...f, customer_phone: event.target.value }))} />
           <input className="input-dark" placeholder="رقم الفاتورة إن وجد" value={form.invoice_no} onChange={(event) => setForm((f) => ({ ...f, invoice_no: event.target.value }))} />
           <input className="input-dark" type="datetime-local" value={form.due_at} onChange={(event) => setForm((f) => ({ ...f, due_at: event.target.value }))} />
@@ -694,7 +750,26 @@ export default function ShiftNotes() {
         </button>
       </div>
 
-      <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-4 grid grid-cols-1 lg:grid-cols-4 gap-3">
+      <div className="flex flex-wrap gap-2">
+        <Link to="/customer-requests" className="btn-secondary">الذهاب لطلبات العملاء</Link>
+        <Link to="/shift-notes" className="btn-secondary">تحديث صفحة الملحوظات</Link>
+      </div>
+
+      {deletedNotes.length > 0 && (
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
+          <div className="section-title mb-2">الملاحظات المحذوفة (يمكن استرجاعها)</div>
+          <div className="space-y-2">
+            {deletedNotes.slice(0, 10).map((n) => (
+              <div key={n.id} className="flex items-center justify-between gap-3 text-sm">
+                <div className="text-slate-200">{n.title} - حذفها: {n.deleted_by_name || "غير محدد"}</div>
+                <button className="btn-secondary text-xs" onClick={() => restoreNote(n)}>استرجاع</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div ref={notesSectionRef} className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-4 grid grid-cols-1 lg:grid-cols-4 gap-3">
         <input className="input-dark lg:col-span-2" placeholder="بحث بالعميل أو الهاتف أو العنوان أو المسؤول..." value={search} onChange={(event) => setSearch(event.target.value)} />
         <select className="input-dark" value={filter} onChange={(event) => setFilter(event.target.value)}>
           <option value="all">كل الملاحظات</option>
@@ -741,6 +816,7 @@ export default function ShiftNotes() {
                       <span className="badge-info">{note.branch || "غير محدد"}</span>
                       <span className="badge-info">{priorityLabels[note.priority || "normal"]}</span>
                       <span className="badge-info">{isOverdue(note) ? "متأخرة" : statusLabels[note.status || "new"]}</span>
+                      {note.is_recurring && <span className="badge-info">متكررة</span>}
                       {note.received_by_name && <span className="badge-success">استلمها {note.received_by_name}</span>}
                       {note.is_recurring && <span className="badge-warning">متكررة</span>}
                       {note.postponed_until && <span className="badge-warning">مؤجلة إلى {dateLabel(note.postponed_until)}</span>}
@@ -765,7 +841,6 @@ export default function ShiftNotes() {
                   <button onClick={() => updateStatus(note, "completed")} className="btn-primary text-sm flex items-center gap-2"><CheckCircle2 size={15} /> تم التنفيذ</button>
                   <button onClick={() => postponeNote(note)} className="btn-secondary text-sm flex items-center gap-2"><Clock size={15} /> تأجيل</button>
                   <button onClick={() => startEdit(note)} disabled={!canManage && note.author_name !== user?.name} className="btn-secondary text-sm flex items-center gap-2"><Edit3 size={15} /> تعديل</button>
-                  <button onClick={() => deleteNote(note)} disabled={!canManage && note.author_name !== user?.name} className="btn-secondary text-sm flex items-center gap-2 text-red-200"><Trash2 size={15} /> حذف</button>
                   {phone && <a href={`tel:${phone}`} className="btn-secondary text-sm flex items-center gap-2"><Phone size={15} /> اتصال</a>}
                   {phone && <button onClick={() => navigator.clipboard?.writeText(phone)} className="btn-secondary text-sm flex items-center gap-2"><Copy size={15} /> نسخ الرقم</button>}
                   {phone && <a href={generateWhatsAppLink(phone, `حضرتك مع صيدليات دواء، بنتابع مع حضرتك بخصوص الطلب / المتابعة الخاصة بحضرتك.`)} target="_blank" rel="noreferrer" className="btn-secondary text-sm flex items-center gap-2"><MessageSquare size={15} /> واتساب</a>}
@@ -847,24 +922,6 @@ export default function ShiftNotes() {
     </div>
   );
 }
-
-function MiniStat({
-  label,
-  value,
-  danger,
-  success,
-  active,
-  onClick,
-}: {
-  label: string;
-  value: number;
-  danger?: boolean;
-  success?: boolean;
-  active?: boolean;
-  onClick?: () => void;
-}) {
-  return (
-    <button type="button" onClick={onClick} className={`stat-card text-right transition ${active ? "ring-2 ring-teal-300/70 border-teal-300/60" : "hover:border-teal-300/40"}`}>
       <div className="text-slate-400 text-sm">{label}</div>
       <div className={`text-3xl font-black mt-2 ${danger ? "text-red-300" : success ? "text-emerald-300" : "text-teal-300"}`}>{value}</div>
     </button>
