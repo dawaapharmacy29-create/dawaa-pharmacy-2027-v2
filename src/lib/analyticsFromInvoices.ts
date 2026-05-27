@@ -1,3 +1,5 @@
+import { getSalesValue } from "@/lib/analyticsService";
+
 /**
  * تحليلات مبنية على جدول sales_invoices بعد الاستيراد اليومي.
  */
@@ -197,7 +199,7 @@ export function aggregateInvoiceAnalytics(rows: SalesInvoiceRow[], bounds: Shift
   const customerDates = new Map<string, Set<string>>();
 
   for (const row of rows) {
-    const amount = Number(row.net_amount ?? row.amount ?? row.gross_amount ?? 0);
+    const amount = getSalesValue(row as unknown as Record<string, unknown>);
     if (!Number.isFinite(amount) || amount <= 0) continue;
 
     agg.invoiceCount++;

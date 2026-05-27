@@ -286,7 +286,7 @@ export default function Dashboard() {
   const assistants = onShift.filter((e) => e.role === "مساعد");
   const delivery = onShift.filter((e) => e.role === "توصيل");
 
-  const vipCustomers = customers.filter((c) => c.type === "مهم جداً").length;
+  const vipCustomers = customers.filter((c) => c.type === "مهم جدًا").length;
   const atRisk = customers.filter(
     (c) =>
       c.retention_status === "معرض للفقدان" || c.retention_status === "مفقود",

@@ -342,8 +342,8 @@ export default function ExecutiveDashboard2027() {
     const listPercent = listTargetTotal ? Math.round((listSoldTotal / listTargetTotal) * 100) : 0;
 
     const customerRating = followups.length
-      ? Math.min(5, Math.max(3.5, 4 + Math.min(1, followups.filter((f) => ["تم", "completed", "مكتمل"].some((x) => String(getStatus(f)).includes(x))).length / Math.max(1, followups.length)))).toFixed(1)
-      : "4.6";
+      ? Math.min(5, Math.max(0, 4 + Math.min(1, followups.filter((f) => ["تم", "completed", "مكتمل"].some((x) => String(getStatus(f)).includes(x))).length / Math.max(1, followups.length)))).toFixed(1)
+      : "0.0";
 
     const topAlerts = [
       { label: "طلب متابعة متأخر", sub: "عملاء يحتاجون اتصال", count: pendingFollowups.length, tone: "danger", icon: Phone, route: "/customer-service" },
@@ -403,7 +403,7 @@ export default function ExecutiveDashboard2027() {
   return (
     <div className="dawaa-executive-dashboard space-y-4" dir="rtl">
       <section className="grid gap-4 xl:grid-cols-[1fr_2.75fr]">
-        <SalesHeroCard total={model.totalSales} />
+        <SalesHeroCard total={model.totalSales} dailySales={model.dailySales} />
         <div className="relative overflow-hidden rounded-3xl border border-teal-400/20 bg-[radial-gradient(circle_at_20%_20%,rgba(45,212,191,.22),transparent_28%),linear-gradient(135deg,rgba(15,118,110,.9),rgba(15,31,52,.92)_52%,rgba(2,8,23,.96))] p-6 shadow-2xl shadow-teal-500/10">
           <div className="absolute inset-0 opacity-40 bg-[linear-gradient(90deg,transparent,rgba(255,255,255,.05),transparent)]" />
           <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -479,8 +479,8 @@ export default function ExecutiveDashboard2027() {
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <Kpi label="نسبة تحقيق الهدف" value={`${model.totalSales ? 96 : 0}%`} hint="مؤشر الدورة" icon={Target} tone="danger" />
-        <Kpi label="الربح الإجمالي" value={formatMoney(Math.round(model.totalSales * 0.37))} hint="تقديري من المبيعات" icon={Wallet} />
+        <Kpi label="نسبة تحقيق الهدف" value="غير محدد" hint="اضبط التارجت أولًا" icon={Target} tone="danger" />
+        <Kpi label="الربح الإجمالي" value="غير متاح" hint="لا يوجد هامش ربح فعلي" icon={Wallet} />
         <Kpi label="متوسط قيمة الطلب" value={formatMoney(model.avgInvoice)} hint="جودة البيع" icon={FileSpreadsheet} />
         <Kpi label="عدد الطلبات" value={formatNumber(model.cycleInvoices.length || model.requestOpen.length)} hint="داخل الدورة" icon={ShoppingCart} />
         <Kpi label="إجمالي العملاء" value={formatNumber(model.totalCustomersSeen || model.uniqueCustomers)} hint="كل البيانات المتاحة" icon={Users} />
@@ -621,7 +621,7 @@ export default function ExecutiveDashboard2027() {
         <Panel title="أداء المبيعات (آخر 7 أيام)" link="/analytics">
           <div className="mb-3">
             <div className="text-2xl font-black text-white">{formatMoney(model.dailySales.reduce((s, d) => s + d.value, 0))}</div>
-            <div className="text-xs font-semibold text-emerald-300">↗ +15.3% مقارنة بالأسبوع السابق</div>
+            <div className="text-xs font-semibold text-slate-400">من بيانات الفواتير المستوردة فقط</div>
           </div>
           <div className="h-44">
             <ResponsiveContainer width="100%" height="100%">
@@ -639,8 +639,8 @@ export default function ExecutiveDashboard2027() {
   );
 }
 
-function SalesHeroCard({ total }: { total: number }) {
-  const demo = [12, 16, 11, 9, 18, 15, 21, 17, 20, 14].map((value, index) => ({ index, value }));
+function SalesHeroCard({ total, dailySales }: { total: number; dailySales: Array<{ day: string; value: number }> }) {
+  const chartData = dailySales.length ? dailySales : [{ day: "لا توجد بيانات", value: 0 }];
   return (
     <div className="rounded-3xl border border-teal-400/15 bg-[linear-gradient(145deg,rgba(20,184,166,.14),rgba(15,23,42,.88))] p-5 shadow-2xl shadow-teal-500/5">
       <div className="flex items-start justify-between gap-3">
@@ -648,12 +648,12 @@ function SalesHeroCard({ total }: { total: number }) {
         <div className="text-left">
           <div className="text-xs font-semibold text-slate-400">إجمالي المبيعات</div>
           <div className="mt-1 text-3xl font-black text-white">{formatMoney(total)}</div>
-          <div className="text-xs font-bold text-emerald-300">↗ +12.6% مقارنة بالدورة السابقة</div>
+          <div className="text-xs font-bold text-slate-400">مصدره sales_invoices للفترة المحددة</div>
         </div>
       </div>
       <div className="mt-5 h-16">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={demo}>
+          <AreaChart data={chartData}>
             <Area type="monotone" dataKey="value" stroke="#14b8a6" strokeWidth={2} fill="#14b8a633" />
           </AreaChart>
         </ResponsiveContainer>

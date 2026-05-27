@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
+import { getSalesValue } from "@/lib/analyticsService";
 import { cleanEgyptianPhone } from "@/lib/whatsapp";
 
 type AnyRow = Record<string, unknown>;
@@ -66,7 +67,7 @@ export function normalizeCustomerPriority(value: unknown, segment?: string | nul
 }
 
 function invoiceAmount(row: AnyRow) {
-  const value = Number(row.net_amount ?? row.amount ?? row.gross_amount ?? 0);
+  const value = getSalesValue(row);
   return Number.isFinite(value) ? value : 0;
 }
 

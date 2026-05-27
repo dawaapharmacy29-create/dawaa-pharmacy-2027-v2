@@ -1,3 +1,4 @@
+import { getSalesValue } from "@/lib/analyticsService";
 /**
  * تجميع مبيعات لوحة التحكم حسب «يوم العمل» الذي يبدأ 9 صباحًا.
  */
@@ -44,7 +45,7 @@ export function buildDailySalesByBusinessDay(rows: SalesInvoiceRow[], businessDa
   const map = new Map<string, { شكري: number; شامي: number }>();
 
   for (const row of rows) {
-    const amount = Number(row.amount ?? row.net_amount ?? 0);
+    const amount = getSalesValue(row as unknown as Record<string, unknown>);
     if (!Number.isFinite(amount) || amount <= 0) continue;
     const key = businessDayKey9am(row);
     if (!key) continue;
@@ -67,7 +68,7 @@ export function buildDailySalesByBusinessDay(rows: SalesInvoiceRow[], businessDa
 export function totalSalesAmount(rows: SalesInvoiceRow[]): number {
   let t = 0;
   for (const row of rows) {
-    const amount = Number(row.amount ?? row.net_amount ?? 0);
+    const amount = getSalesValue(row as unknown as Record<string, unknown>);
     if (Number.isFinite(amount) && amount > 0) t += amount;
   }
   return t;

@@ -57,7 +57,17 @@ export function normalizeArabicName(value?: string | null) {
 }
 
 export function toNumber(value: unknown, fallback = 0) {
-  const n = Number(value ?? 0);
+  if (value === null || value === undefined || value === "") return fallback;
+  if (typeof value === "number") return Number.isFinite(value) ? value : fallback;
+  let text = String(value)
+    .trim()
+    .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
+    .replace(/[٬،]/g, "")
+    .replace(/جنيه|ج\.م|egp/gi, "")
+    .replace(/[^0-9.\-]/g, "");
+  const parts = text.split(".");
+  if (parts.length > 2) text = parts.slice(0, -1).join("") + "." + parts.at(-1);
+  const n = Number.parseFloat(text);
   return Number.isFinite(n) ? n : fallback;
 }
 
@@ -71,7 +81,7 @@ export function pickFirst(row: Record<string, unknown>, keys: string[], fallback
 
 export function getInvoiceAmount(row: Record<string, unknown>) {
   // sales_invoices is the source of truth; use net first, then amount, then gross.
-  return toNumber(pickFirst(row, ["net_amount", "amount", "gross_amount", "discounted_amount", "invoice_total", "net_total", "total", "value", "invoice_value"], 0));
+  return toNumber(pickFirst(row, ["net_amount", "discounted_amount", "amount", "gross_amount", "invoice_total", "net_total", "total", "value", "invoice_value"], 0));
 }
 
 export function getInvoiceDate(row: Record<string, unknown>) {

@@ -7,7 +7,7 @@ export type Branch = typeof BRANCHES[number];
 export const ROLES = ["أدمن", "مدير فرع", "صيدلاني", "مساعد", "توصيل", "خدمة عملاء"] as const;
 export type Role = typeof ROLES[number];
 
-export const CUSTOMER_TYPES = ["عادي", "متوسط", "مهم", "مهم جداً"] as const;
+export const CUSTOMER_TYPES = ["عادي", "متوسط", "مهم", "مهم جدًا"] as const;
 export type CustomerType = typeof CUSTOMER_TYPES[number];
 
 export const FOLLOWUP_STATUSES = ["معلق", "تم التواصل", "مهتم", "VIP", "شكوى", "رقم خاطئ"] as const;

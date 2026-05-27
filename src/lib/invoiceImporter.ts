@@ -10,6 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { getCycleForDate } from "@/lib/pharmacy-cycle";
 import { getShiftFromDateTime } from "@/lib/analyticsFromInvoices";
 import { rebuildCustomerStats } from "@/lib/customerAnalyticsService";
+import { getSalesValue } from "@/lib/analyticsService";
 
 export interface RawInvoiceRow {
   rowIndex: number;
@@ -479,7 +480,7 @@ function normalizeBranch(rawBranch: string, fallback: string) {
 }
 
 function classifyByAvg(avg: number): string {
-  if (avg >= 8000) return "مهم جداً";
+  if (avg >= 8000) return "مهم جدًا";
   if (avg >= 4000) return "مهم";
   if (avg >= 1500) return "متوسط";
   return "عادي";
@@ -1138,7 +1139,7 @@ async function refreshCustomerAnalysisForImportedRows(
       branch: group.branch,
       segment: type,
       status: retentionStatus,
-      priority: type === "مهم جداً" ? "عالية" : type === "مهم" ? "متوسطة" : "عادي",
+      priority: type === "مهم جدًا" ? "عالية" : type === "مهم" ? "متوسطة" : "عادي",
       total_spent: group.total,
       total_invoices: group.count,
       avg_monthly: avgMonthly,
@@ -1316,7 +1317,7 @@ export async function importInvoicesToDB(
       });
     } else {
       summary.insertedRows += chunk.length;
-      summary.importedNetSales = (summary.importedNetSales || 0) + chunk.reduce((sum, row) => sum + (Number(row.net_amount ?? row.amount ?? row.gross_amount ?? 0) || 0), 0);
+      summary.importedNetSales = (summary.importedNetSales || 0) + chunk.reduce((sum, row) => sum + getSalesValue(row), 0);
     }
     reportProgress(
       onProgress,
@@ -1456,7 +1457,7 @@ export async function importInvoicesToDB(
       segment: type,
       status: retentionStatus,
       priority:
-        type === "مهم جداً" ? "عالية" : type === "مهم" ? "متوسطة" : "عادي",
+        type === "مهم جدًا" ? "عالية" : type === "مهم" ? "متوسطة" : "عادي",
       total_spent: totalPurchases,
       total_invoices: totalCount,
       avg_monthly: avgMonthly,

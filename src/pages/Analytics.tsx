@@ -97,6 +97,7 @@ export default function Analytics() {
   const [targetDrafts, setTargetDrafts] = useState<Record<string, number>>({});
   const [newBranchName, setNewBranchName] = useState("");
   const [newBranchTarget, setNewBranchTarget] = useState(0);
+  const [autoPeriodApplied, setAutoPeriodApplied] = useState(false);
 
   const { data: invoices, loading: invLoad, error: invError } = useSupabaseQuery<SalesInvoiceRow>({
     table: "sales_invoices",
@@ -121,6 +122,23 @@ export default function Analytics() {
     const hasSelectedDay = invoices.some((row) => dayKey(row) === selectedDate);
     if (!hasSelectedDay) setSelectedDate(latestInvoiceDate);
   }, [invoices, latestInvoiceDate, selectedDate]);
+
+  useEffect(() => {
+    if (autoPeriodApplied || invoices.length === 0) return;
+    const hasCurrentPeriodData = invoices.some((row) => isDateInRange(dayKey(row), periodStart, periodEnd));
+    if (hasCurrentPeriodData) {
+      setAutoPeriodApplied(true);
+      return;
+    }
+
+    const latest = latestInvoiceDate;
+    if (!latest) return;
+    const latestCycle = getCycleForDate(new Date(`${latest}T12:00:00`));
+    setPeriodStart(formatCycleDate(latestCycle.start));
+    setPeriodEnd(formatCycleDate(latestCycle.end));
+    setSelectedDate(latest);
+    setAutoPeriodApplied(true);
+  }, [autoPeriodApplied, invoices, latestInvoiceDate, periodEnd, periodStart]);
 
   const filteredInvoices = useMemo(() => {
     return invoices.filter((row) => {
@@ -436,18 +454,6 @@ export default function Analytics() {
       <div className="stat-card space-y-3">
         <div className="grid md:grid-cols-6 gap-3">
           <Filter label="بداية الفترة">
-            <div className="flex gap-1 flex-wrap mb-2">
-              <button
-                type="button"
-                className="px-2 py-1 text-xs rounded bg-slate-700 hover:bg-teal-600 text-slate-200 transition-colors"
-                onClick={() => { const p = getPreviousCycle(); setPeriodStart(formatCycleDate(p.start)); setPeriodEnd(formatCycleDate(p.end)); }}
-              >الدورة السابقة</button>
-              <button
-                type="button"
-                className="px-2 py-1 text-xs rounded bg-slate-700 hover:bg-teal-600 text-slate-200 transition-colors"
-                onClick={() => { const c = getCurrentCycle(); setPeriodStart(formatCycleDate(c.start)); setPeriodEnd(formatCycleDate(c.end)); }}
-              >الدورة الحالية</button>
-            </div>
             <input className="input-dark" type="date" value={periodStart} onChange={(event) => setPeriodStart(event.target.value)} />
           </Filter>
           <Filter label="نهاية الفترة">

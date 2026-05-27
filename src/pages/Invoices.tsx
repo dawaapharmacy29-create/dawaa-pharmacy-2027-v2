@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { Upload, FileSpreadsheet, AlertCircle, CheckCircle, Download, Loader2, XCircle, FileCheck, RefreshCw, ShieldAlert, Trash2, Pencil, Save } from "lucide-react";
 import { BRANCHES } from "@/lib/constants";
+import { getSalesValue } from "@/lib/analyticsService";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useAuth, getCurrentUserProfile } from "@/hooks/useAuth";
 import { logActivity } from "@/hooks/useSupabaseQuery";
@@ -39,7 +40,7 @@ interface ManagedInvoiceRow {
 const INVOICE_PAGE_SIZE = 1000;
 
 function invoiceSalesValue(invoice: Pick<ManagedInvoiceRow, "net_amount" | "amount" | "gross_amount">) {
-  return Number(invoice.net_amount ?? invoice.amount ?? invoice.gross_amount ?? 0) || 0;
+  return getSalesValue(invoice as unknown as Record<string, unknown>);
 }
 
 interface InvoiceEditForm {
@@ -381,7 +382,7 @@ export default function Invoices() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
           <InfoBox title="ملف المبيعات" items={["الهيدر في الصف الثاني", "يعتمد الكود والعميل وقيمة الصافي", "يحفظ المستخدم داخل بيانات الفاتورة لتحليل الدكاترة"]} />
           <InfoBox title="ملف العملاء" items={["الكود هو مفتاح الربط", "الموبايل/التليفون لتحديث العميل", "العنوان محفوظ مع بيانات العميل إن كان العمود موجودًا"]} />
-          <InfoBox title="تصنيف العملاء" items={["مهم جداً: 8000+", "مهم: 4000 إلى 8000", "متوسط: 1500 إلى 4000", "عادي: أقل من 1500"]} />
+          <InfoBox title="تصنيف العملاء" items={["مهم جدًا: 8000+", "مهم: 4000 إلى 8000", "متوسط: 1500 إلى 4000", "عادي: أقل من 1500"]} />
         </div>
         <button onClick={generateTemplateFile} className="btn-secondary mt-4 flex items-center gap-2">
           <Download size={15} /> تحميل نموذج مبيعات

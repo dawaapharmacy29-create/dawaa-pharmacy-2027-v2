@@ -24,16 +24,46 @@ export type SalesInvoiceLike = Record<string, unknown>;
 
 const ALL_FILTERS = new Set(["", "الكل", "كل الفروع", "كل الدكاترة", "كل الشيفتات", "كل الأنواع"]);
 
+export function parseNumericValue(value: unknown): number {
+  if (value === null || value === undefined || value === "") return 0;
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  let text = String(value).trim();
+  if (!text) return 0;
+  text = text
+    .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+    .replace(/[٬،]/g, "")
+    .replace(/جنيه|ج\.م|egp|EGP/gi, "")
+    .replace(/[^0-9.\-]/g, "");
+  const parts = text.split(".");
+  if (parts.length > 2) {
+    text = parts.slice(0, -1).join("") + "." + parts.at(-1);
+  }
+  const numberValue = Number.parseFloat(text);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+export function firstNumericValue(row: SalesInvoiceLike, keys: string[]): number {
+  for (const key of keys) {
+    const value = row[key];
+    if (value !== undefined && value !== null && String(value).trim() !== "") {
+      const parsed = parseNumericValue(value);
+      if (parsed !== 0) return parsed;
+    }
+  }
+  return 0;
+}
+
 export function getSalesValue(row: SalesInvoiceLike) {
-  return Number(row.net_amount ?? row.amount ?? row.gross_amount ?? 0) || 0;
+  return firstNumericValue(row, ["net_amount", "discounted_amount", "amount", "gross_amount", "invoice_total", "net_total", "total", "value", "invoice_value"]);
 }
 
 export function getGrossSalesValue(row: SalesInvoiceLike) {
-  return Number(row.gross_amount ?? row.amount ?? row.net_amount ?? 0) || 0;
+  return firstNumericValue(row, ["gross_amount", "amount", "invoice_total", "total", "net_amount", "discounted_amount"]);
 }
 
 export function getDiscountValue(row: SalesInvoiceLike) {
-  return Number(row.discount_amount ?? 0) || Math.max(0, getGrossSalesValue(row) - getSalesValue(row));
+  const explicit = firstNumericValue(row, ["discount_amount", "discount", "ق.الخصم"]);
+  return explicit || Math.max(0, getGrossSalesValue(row) - getSalesValue(row));
 }
 
 function invoiceDate(row: SalesInvoiceLike) {

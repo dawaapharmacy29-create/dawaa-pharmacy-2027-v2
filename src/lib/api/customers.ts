@@ -150,15 +150,15 @@ function applyCustomerFilters(query: CustomerQueryBuilder, options: GetCustomers
   if (options.branch && options.branch !== ALL_FILTER) query = query.in("branch", branchFilterValues(options.branch));
   if (options.type && options.type !== ALL_FILTER) {
     const normalizedType = normalizeArabicType(options.type);
-    // استخدام IN لمطابقة جميع المتغيرات الممكنة للتصنيف
+    // استخدام OR لمطابقة جميع المتغيرات الممكنة للتصنيف
     if (normalizedType === "مهم جدًا") {
-      query = query.or("segment.in.(مهم جدًا,مهم جدا,مهم جداً,VIP,vip,Very Important,very important),type.in.(مهم جدًا,مهم جدا,مهم جداً)");
+      query = query.or("segment.eq.مهم جدًا,segment.eq.مهم جدا,segment.eq.مهم جداً,segment.eq.VIP,segment.eq.vip,segment.eq.Very Important,segment.eq.very important,type.eq.مهم جدًا,type.eq.مهم جدا,type.eq.مهم جداً");
     } else if (normalizedType === "مهم") {
-      query = query.or("segment.in.(مهم,important,Important),type.in.(مهم,important)");
+      query = query.or("segment.eq.مهم,segment.eq.important,segment.eq.Important,type.eq.مهم,type.eq.important");
     } else if (normalizedType === "متوسط") {
-      query = query.or("segment.in.(متوسط,medium,Medium),type.in.(متوسط,medium)");
+      query = query.or("segment.eq.متوسط,segment.eq.medium,segment.eq.Medium,type.eq.متوسط,type.eq.medium");
     } else if (normalizedType === "عادي") {
-      query = query.or("segment.in.(عادي,normal,Normal,regular,Regular),type.in.(عادي,normal,regular)");
+      query = query.or("segment.eq.عادي,segment.eq.normal,segment.eq.Normal,segment.eq.regular,segment.eq.Regular,type.eq.عادي,type.eq.normal,type.eq.regular");
     } else {
       query = query.eq("segment", normalizedType);
     }
@@ -298,6 +298,30 @@ async function rankedCustomerSearch(options: GetCustomersOptions, limit: number,
   };
 }
 
+async function fetchAllCustomers(maxRows = 20000) {
+  const all: Customer[] = [];
+  const pageSize = 1000;
+  for (let from = 0; from < maxRows; from += pageSize) {
+    const { data, error } = await supabase
+      .from("customers")
+      .select("*")
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    const page = ((data ?? []) as Record<string, unknown>[]).map(normalizeCustomer);
+    all.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return all;
+}
+
+function matchesCustomerFilters(customer: Customer, options: GetCustomersOptions) {
+  const branchMatch = !options.branch || options.branch === ALL_FILTER || customer.branch === options.branch;
+  const wantedType = normalizeArabicType(options.type);
+  const actualType = normalizeArabicType(customer.type || customer.segment);
+  const typeMatch = !options.type || options.type === ALL_FILTER || actualType === wantedType;
+  return branchMatch && typeMatch;
+}
+
 async function getFallbackCustomersBySearch(options: GetCustomersOptions, limit: number, offset: number) {
   const terms = searchTerms(options.search);
   if (!options.search?.trim()) return null;
@@ -307,15 +331,11 @@ async function getFallbackCustomersBySearch(options: GetCustomersOptions, limit:
 
   for (const term of terms) {
     for (const column of FALLBACK_SEARCH_COLUMNS) {
-      let query = supabase
+      const { data, error } = await supabase
         .from("customers")
         .select("*")
         .ilike(column, `%${term}%`)
         .range(0, limit + offset - 1);
-
-      query = applyCustomerFilters(query, options);
-
-      const { data, error } = await query;
 
       if (error) {
         if (isMissingColumnError(error)) continue;
@@ -365,26 +385,22 @@ async function getFallbackCustomers(options: GetCustomersOptions, limit: number,
   const searchResult = await getFallbackCustomersBySearch(options, limit, offset);
   if (searchResult) return searchResult;
 
-  let query = supabase
+  const hasClientSideFilter = Boolean((options.branch && options.branch !== ALL_FILTER) || (options.type && options.type !== ALL_FILTER));
+
+  if (hasClientSideFilter) {
+    const all = await fetchAllCustomers();
+    const filtered = all.filter((customer) => matchesCustomerFilters(customer, options));
+    return { customers: filtered.slice(offset, offset + limit), count: filtered.length, limit, offset };
+  }
+
+  const { data, error, count } = await supabase
     .from("customers")
     .select("*", { count: "exact" })
     .range(offset, offset + limit - 1);
 
-  query = applyCustomerFilters(query, options);
-
-  const { data, error, count } = await query;
-
   if (error) throw new Error(error.message);
   const mapped = ((data ?? []) as Record<string, unknown>[]).map(normalizeCustomer);
-
-  // فلترة يدوية إضافية للتأكد من مطابقة التصنيف
-  const filtered = mapped.filter((customer) => {
-    const branchMatch = !options.branch || options.branch === ALL_FILTER || customer.branch === options.branch;
-    const typeMatch = !options.type || options.type === ALL_FILTER || normalizeArabicType(customer.type || customer.segment) === normalizeArabicType(options.type);
-    return branchMatch && typeMatch;
-  });
-
-  return { customers: filtered, count: filtered.length, limit, offset };
+  return { customers: mapped, count: count ?? mapped.length, limit, offset };
 }
 
 async function countCustomers(options: GetCustomersOptions = {}) {
@@ -512,37 +528,16 @@ export async function getCustomerDetails(customer: Customer): Promise<CustomerDe
 }
 
 export async function getCustomerStats(): Promise<CustomerStats> {
-  const safeCount = async (query: PromiseLike<{ count: number | null; error: { message: string } | null }>) => {
-    const { count, error } = await query;
-    if (error) return 0;
-    return count ?? 0;
-  };
-
   try {
-    const [total, vip, newC, atRiskLost, atRiskWarning] = await Promise.all([
-      countCustomers(),
-      safeCount(supabase
-        .from("customers")
-        .select("id", { count: "exact", head: true })
-        .in("segment", ["مهم جدًا", "مهم جدا", "مهم جداً", "VIP", "Very Important", "vip", "very important"])),
-      safeCount(supabase
-        .from("customers")
-        .select("id", { count: "exact", head: true })
-        .gte("created_at", new Date(Date.now() - 30 * 86400000).toISOString())
-      ),
-      safeCount(supabase
-        .from("customers")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "مفقود")
-      ),
-      safeCount(supabase
-        .from("customers")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "معرض للفقدان")
-      ),
-    ]);
-
-    return { total, vip, newC, atRisk: atRiskLost + atRiskWarning };
+    const all = await fetchAllCustomers();
+    const thirtyDaysAgo = Date.now() - 30 * 86400000;
+    const vip = all.filter((customer) => normalizeArabicType(customer.type || customer.segment) === "مهم جدًا").length;
+    const newC = all.filter((customer) => {
+      const created = new Date(String(customer.created_at || "")).getTime();
+      return Number.isFinite(created) && created >= thirtyDaysAgo;
+    }).length;
+    const atRisk = all.filter((customer) => ["مفقود", "معرض للفقدان"].includes(normalizeCustomerStatus(customer.status, customer.last_purchase || customer.last_order_date, customer.first_purchase))).length;
+    return { total: all.length, vip, newC, atRisk };
   } catch (error) {
     throw new Error(getErrorMessage(error));
   }
