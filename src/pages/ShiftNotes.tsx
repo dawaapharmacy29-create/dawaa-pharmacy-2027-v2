@@ -6,6 +6,7 @@ import {
   Clock,
   Copy,
   Edit3,
+  FileText,
   Loader2,
   MessageSquare,
   Phone,
@@ -179,6 +180,7 @@ function statusClass(note: ShiftNote) {
   if (note.status === "completed") return "bg-emerald-500/10 border-emerald-400/25 text-emerald-200";
   if (note.status === "cancelled") return "bg-slate-500/10 border-slate-400/25 text-slate-300";
   if (note.priority === "critical" || note.priority === "urgent") return "bg-red-500/10 border-red-400/25 text-red-100";
+  if (note.note_type === "nursing") return "bg-amber-500/10 border-amber-300/30 text-amber-100";
   if (note.priority === "important") return "bg-amber-500/10 border-amber-400/25 text-amber-100";
   return "bg-blue-500/10 border-blue-400/25 text-blue-100";
 }
@@ -342,6 +344,25 @@ export default function ShiftNotes() {
     toast.success(status === "completed" ? "تم تنفيذ الملحوظة" : "تم تحديث الملحوظة");
     await loadNotes();
     if (selected?.id === note.id) await loadDetails(data as ShiftNote);
+  };
+
+  const deleteNote = async (note: ShiftNote) => {
+    if (!canManage && note.author_name !== user?.name) {
+      toast.error("ليس لديك صلاحية حذف هذه الملاحظة");
+      return;
+    }
+    const ok = window.confirm("هل تريد حذف هذه الملاحظة؟");
+    if (!ok) return;
+
+    const { error } = await supabase.from("shift_notes").delete().eq("id", note.id);
+    if (error) {
+      toast.error(`تعذر حذف الملاحظة: ${error.message}`);
+      return;
+    }
+
+    toast.success("تم حذف الملاحظة");
+    if (selected?.id === note.id) setSelected(null);
+    await loadNotes();
   };
 
   const receiveNote = async (note: ShiftNote) => {
@@ -566,12 +587,12 @@ export default function ShiftNotes() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-        <MiniStat label="ملاحظات اليوم" value={summary.today} />
-        <MiniStat label="متأخرة" value={summary.overdue} danger />
-        <MiniStat label="عاجلة/حرجة" value={summary.urgent} danger />
-        <MiniStat label="بانتظار الاستلام" value={summary.pending} />
-        <MiniStat label="متكررة اليوم" value={summary.recurring} />
-        <MiniStat label="مكتملة اليوم" value={summary.completed} success />
+        <MiniStat label="ملاحظات اليوم" value={summary.today} active={filter === "today"} onClick={() => setFilter("today")} />
+        <MiniStat label="متأخرة" value={summary.overdue} danger active={filter === "overdue"} onClick={() => setFilter("overdue")} />
+        <MiniStat label="عاجلة/حرجة" value={summary.urgent} danger active={filter === "urgent"} onClick={() => setFilter("urgent")} />
+        <MiniStat label="بانتظار الاستلام" value={summary.pending} active={filter === "assigned_pending"} onClick={() => setFilter("assigned_pending")} />
+        <MiniStat label="متكررة اليوم" value={summary.recurring} active={filter === "recurring"} onClick={() => setFilter("recurring")} />
+        <MiniStat label="مكتملة اليوم" value={summary.completed} success active={filter === "completed_today"} onClick={() => setFilter("completed_today")} />
       </div>
 
       <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5 space-y-4">
@@ -685,6 +706,7 @@ export default function ShiftNotes() {
                       <span className="badge-info">{priorityLabels[note.priority || "normal"]}</span>
                       <span className="badge-info">{isOverdue(note) ? "متأخرة" : statusLabels[note.status || "new"]}</span>
                       {note.received_by_name && <span className="badge-success">استلمها {note.received_by_name}</span>}
+                      {note.is_recurring && <span className="badge-warning">متكررة</span>}
                       {note.postponed_until && <span className="badge-warning">مؤجلة إلى {dateLabel(note.postponed_until)}</span>}
                       {note.handed_over && <span className="badge-warning">تم تسليمها للشيفت التالي</span>}
                     </div>
@@ -696,6 +718,10 @@ export default function ShiftNotes() {
                   <Info icon={Phone} label="الهاتف" value={note.customer_phone || "لا يوجد"} />
                   <Info icon={Clock} label="وقت التنفيذ" value={dateLabel(note.due_at)} />
                   <Info icon={UserRound} label="المسؤول" value={note.assigned_to_name || "غير محدد"} />
+                  <Info icon={FileText} label="رقم الفاتورة" value={note.invoice_no || "لا يوجد"} />
+                  <Info icon={UserRound} label="أنشأها" value={note.author_name || "غير محدد"} />
+                  <Info icon={Clock} label="تاريخ الإنشاء" value={dateLabel(note.created_at)} />
+                  <Info icon={Clock} label="آخر تحديث" value={dateLabel(note.updated_at)} />
                 </div>
                 {note.details && <p className="text-slate-300 text-sm leading-7 mt-4 line-clamp-2">{note.details}</p>}
                 <div className="flex flex-wrap gap-2 mt-4">
@@ -703,7 +729,7 @@ export default function ShiftNotes() {
                   <button onClick={() => updateStatus(note, "completed")} className="btn-primary text-sm flex items-center gap-2"><CheckCircle2 size={15} /> تم التنفيذ</button>
                   <button onClick={() => postponeNote(note)} className="btn-secondary text-sm flex items-center gap-2"><Clock size={15} /> تأجيل</button>
                   <button onClick={() => startEdit(note)} disabled={!canManage && note.author_name !== user?.name} className="btn-secondary text-sm flex items-center gap-2"><Edit3 size={15} /> تعديل</button>
-                  <button onClick={() => updateStatus(note, "cancelled", "إلغاء من المستخدم")} disabled={!canManage && note.author_name !== user?.name} className="btn-secondary text-sm flex items-center gap-2 text-red-200"><Trash2 size={15} /> إلغاء</button>
+                  <button onClick={() => deleteNote(note)} disabled={!canManage && note.author_name !== user?.name} className="btn-secondary text-sm flex items-center gap-2 text-red-200"><Trash2 size={15} /> حذف</button>
                   {phone && <a href={`tel:${phone}`} className="btn-secondary text-sm flex items-center gap-2"><Phone size={15} /> اتصال</a>}
                   {phone && <button onClick={() => navigator.clipboard?.writeText(phone)} className="btn-secondary text-sm flex items-center gap-2"><Copy size={15} /> نسخ الرقم</button>}
                   {phone && <a href={generateWhatsAppLink(phone, `حضرتك مع صيدليات دواء، بنتابع مع حضرتك بخصوص الطلب / المتابعة الخاصة بحضرتك.`)} target="_blank" rel="noreferrer" className="btn-secondary text-sm flex items-center gap-2"><MessageSquare size={15} /> واتساب</a>}
@@ -786,12 +812,26 @@ export default function ShiftNotes() {
   );
 }
 
-function MiniStat({ label, value, danger, success }: { label: string; value: number; danger?: boolean; success?: boolean }) {
+function MiniStat({
+  label,
+  value,
+  danger,
+  success,
+  active,
+  onClick,
+}: {
+  label: string;
+  value: number;
+  danger?: boolean;
+  success?: boolean;
+  active?: boolean;
+  onClick?: () => void;
+}) {
   return (
-    <div className="stat-card">
+    <button type="button" onClick={onClick} className={`stat-card text-right transition ${active ? "ring-2 ring-teal-300/70 border-teal-300/60" : "hover:border-teal-300/40"}`}>
       <div className="text-slate-400 text-sm">{label}</div>
       <div className={`text-3xl font-black mt-2 ${danger ? "text-red-300" : success ? "text-emerald-300" : "text-teal-300"}`}>{value}</div>
-    </div>
+    </button>
   );
 }
 
