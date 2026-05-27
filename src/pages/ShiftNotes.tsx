@@ -922,8 +922,14 @@ export default function ShiftNotes() {
     </div>
   );
 }
+
+function MiniStat({ label, value, danger, success, onClick }: { label: string; value: number; danger?: boolean; success?: boolean; onClick?: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className="stat-card text-right">
       <div className="text-slate-400 text-sm">{label}</div>
-      <div className={`text-3xl font-black mt-2 ${danger ? "text-red-300" : success ? "text-emerald-300" : "text-teal-300"}`}>{value}</div>
+      <div className={`text-3xl font-black mt-2 ${danger ? "text-red-300" : success ? "text-emerald-300" : "text-teal-300"}`}>
+        {value}
+      </div>
     </button>
   );
 }
