@@ -38,6 +38,7 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const mountedRef = useRef(true);
 
   // Stable serialised keys used as useCallback deps (avoids complex-expression lint warning)
   const filtersKey = JSON.stringify(options.filters ?? null);
@@ -51,11 +52,13 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
     setError(null);
 
     if (!isSupabaseConfigured) {
-      setData([]);
-      setLoading(false);
-      setError(
-        "إعدادات Supabase غير موجودة. أضف ملف .env لتفعيل البيانات الحقيقية.",
-      );
+      if (mountedRef.current) {
+        setData([]);
+        setLoading(false);
+        setError(
+          "إعدادات Supabase غير موجودة. أضف ملف .env لتفعيل البيانات الحقيقية.",
+        );
+      }
       return;
     }
 
@@ -85,6 +88,8 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
 
     const { data: result, error: err } = await query;
 
+    if (!mountedRef.current) return;
+
     if (err) {
       setError(friendlySupabaseError(err.message));
       if (options.table === TABLES.employeeTransactions) {
@@ -104,6 +109,7 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
   }, [options.table, filtersKey, selectKey, limitKey, orderColumn, orderAsc]);
 
   useEffect(() => {
+    mountedRef.current = true;
     fetchData();
 
     if (isSupabaseConfigured && options.realtimeEnabled !== false) {
@@ -113,7 +119,6 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
           "postgres_changes",
           { event: "*", schema: "public", table: options.table },
           () => {
-            console.log(`[Realtime] ${options.table} changed, refetching...`);
             fetchData();
           },
         )
@@ -121,6 +126,7 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
     }
 
     return () => {
+      mountedRef.current = false;
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
       }

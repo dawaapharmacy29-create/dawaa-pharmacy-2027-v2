@@ -55,14 +55,15 @@ export function firstNumericValue(row: SalesInvoiceLike, keys: string[]): number
 }
 
 export function getSalesValue(row: SalesInvoiceLike | any) {
-  // صافي المبيعات الصحيح في sales_invoices: net_amount ثم amount ثم gross_amount.
+  // صافي المبيعات الصحيح في sales_invoices: net_amount ثم amount ثم gross_amount فقط.
   // لا تستخدم total_amount لأنه غير موجود في جدول Supabase الحالي.
-  return firstNumericValue(row, ["net_amount", "amount", "gross_amount", "discounted_amount", "invoice_total", "total", "value", "invoice_value"]);
+  // لا تستخدم courier_cash أو extra_fees أو discount_amount أو line_items_count.
+  return firstNumericValue(row, ["net_amount", "amount", "gross_amount"]);
 }
 
 export function getGrossSalesValue(row: SalesInvoiceLike) {
-  // إجمالي قبل الخصم إن وجد، وإلا نرجع للصافي/amount حتى لا تظهر صفر.
-  return firstNumericValue(row, ["gross_amount", "amount", "net_amount", "discounted_amount", "invoice_total", "total"]);
+  // إجمالي قبل الخصم: gross_amount > amount > net_amount
+  return firstNumericValue(row, ["gross_amount", "amount", "net_amount"]);
 }
 
 export function getDiscountValue(row: SalesInvoiceLike) {
@@ -83,6 +84,7 @@ export function filterSalesInvoices(rows: SalesInvoiceLike[], filters: SalesAnal
   return rows.filter((row) => {
     const date = invoiceDate(row);
     if (filters.from && date && date < filters.from) return false;
+    // End date is inclusive (includes full selected day)
     if (filters.to && date && date > filters.to) return false;
     if (!matchesFilter(row.branch, filters.branch)) return false;
     if (!matchesFilter(row.seller_name ?? row.doctor_name ?? row.staff_name, filters.doctor)) return false;

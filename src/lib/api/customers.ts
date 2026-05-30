@@ -2,6 +2,7 @@ import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { phoneSearchTokens } from "@/lib/phone";
 import { matchesOrderedSegments } from "@/lib/utils";
 import { fetchSalesInvoices, getInvoicesForCustomer, normalizeInvoice } from "@/lib/salesInvoiceSource";
+import { fetchAllSalesInvoices } from "@/lib/salesInvoiceRepository";
 import {
   cleanCustomerCode as cleanMasterCustomerCode,
   normalizeCustomerPriority,
@@ -392,8 +393,14 @@ function sortCustomersByPriority(customers: Customer[]) {
 }
 
 async function getEnrichedCustomers() {
-  const [baseCustomers, invoices] = await Promise.all([fetchAllCustomers(), fetchSalesInvoices()]);
-  return enrichCustomersFromInvoices(baseCustomers as unknown as Record<string, unknown>[], invoices as Record<string, unknown>[]) as unknown as Customer[];
+  const [baseCustomers, invoiceResult] = await Promise.all([
+    fetchAllCustomers(),
+    fetchAllSalesInvoices({}),
+  ]);
+  if (invoiceResult.error) {
+    throw new Error(invoiceResult.error);
+  }
+  return enrichCustomersFromInvoices(baseCustomers as unknown as Record<string, unknown>[], invoiceResult.invoices as Record<string, unknown>[]) as unknown as Customer[];
 }
 
 
@@ -553,8 +560,8 @@ export async function getCustomerDetails(customer: Customer): Promise<CustomerDe
     customer.name ? `customer_name.eq.${customer.name}` : "",
   ].filter(Boolean);
 
-  const [allInvoices, followupResult] = await Promise.all([
-    fetchSalesInvoices(),
+  const [invoiceResult, followupResult] = await Promise.all([
+    fetchAllSalesInvoices({}),
     supabase
       .from("daily_followups")
       .select("*")
@@ -562,6 +569,8 @@ export async function getCustomerDetails(customer: Customer): Promise<CustomerDe
       .order("created_at", { ascending: false })
       .limit(30),
   ]);
+
+  const allInvoices = invoiceResult.error ? [] : invoiceResult.invoices;
 
   if (followupResult.error && !isMissingColumnError(followupResult.error)) {
     throw new Error(followupResult.error.message);

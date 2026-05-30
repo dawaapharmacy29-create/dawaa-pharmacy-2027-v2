@@ -150,12 +150,15 @@ export default function ExecutiveDashboard2027() {
   const [invoices, setInvoices] = useState<Record<string, unknown>[]>([]);
   const [invoicesLoading, setInvoicesLoading] = useState(true);
 
-  // Fetch all invoices with pagination
+  // Fetch all invoices with pagination and date filters
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setInvoicesLoading(true);
-      const result = await fetchAllSalesInvoices({});
+      const result = await fetchAllSalesInvoices({
+        startDate: periodStart,
+        endDate: periodEnd,
+      });
       if (!cancelled) {
         if (result.error) {
           console.error("Error fetching invoices:", result.error);
@@ -169,7 +172,7 @@ export default function ExecutiveDashboard2027() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [periodStart, periodEnd]);
   const { data: followups } = useSupabaseQuery<Record<string, unknown>>({ table: "daily_followups", limit: 1200, realtimeEnabled: true });
   const { data: requests } = useSupabaseQuery<Record<string, unknown>>({ table: "customer_requests", limit: 1200, realtimeEnabled: true });
   const { data: transactions } = useSupabaseQuery<Record<string, unknown>>({ table: "employee_transactions", limit: 1200, realtimeEnabled: true });
@@ -225,7 +228,8 @@ export default function ExecutiveDashboard2027() {
     const totalSales = salesMetrics.netSales;
     const avgInvoice = salesMetrics.averageInvoice;
     const uniqueCustomers = salesMetrics.customerCount;
-    const totalCustomersSeen = new Set(invoices.map(getInvoiceCustomer).filter(Boolean)).size;
+    // Count unique customers only within the selected period
+    const totalCustomersSeen = new Set(cycleInvoices.map(getInvoiceCustomer).filter(Boolean)).size;
     const requestOpen = requests.filter((r) => isOpenStatus(getStatus(r)));
     const tasksOpen = tasks.filter((t) => isOpenStatus(getStatus(t)));
     const pendingFollowups = followups.filter((f) => isOpenStatus(getStatus(f)));

@@ -2,6 +2,7 @@ import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import type { Customer, DailyFollowup } from "@/types/database";
 import { classifyCustomer, customerStatus, getCustomerMonthlyInteractionSummary } from "@/lib/customerMetrics";
 import { enrichCustomersWithSalesMetrics, fetchSalesInvoices } from "@/lib/salesInvoiceSource";
+import { fetchAllSalesInvoices } from "@/lib/salesInvoiceRepository";
 import { getScript } from "@/lib/followupScripts";
 import { cleanEgyptianPhone } from "@/lib/whatsapp";
 import { logActivity } from "@/lib/activityLog";
@@ -484,7 +485,8 @@ async function generateTodayFollowupsLegacy() {
 
   if (error) throw new Error(error.message);
 
-  const invoices = await fetchSalesInvoices();
+  const invoiceResult = await fetchAllSalesInvoices({});
+  const invoices = invoiceResult.error ? [] : invoiceResult.invoices;
   const customers = enrichCustomersWithSalesMetrics(((customerRows ?? []) as Record<string, unknown>[]).map(normalizeCustomer), invoices);
   const { data: recentRows } = await supabase
     .from("daily_followups")
@@ -628,7 +630,8 @@ export async function generateTodayFollowups() {
 
   if (error) throw new Error(error.message);
 
-  const invoices = await fetchSalesInvoices();
+  const invoiceResult = await fetchAllSalesInvoices({});
+  const invoices = invoiceResult.error ? [] : invoiceResult.invoices;
   const customers = enrichCustomersWithSalesMetrics(((customerRows ?? []) as Record<string, unknown>[]).map(normalizeCustomer), invoices);
   const { data: recentRows } = await supabase
     .from("daily_followups")

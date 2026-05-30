@@ -140,11 +140,13 @@ async function loginWithStaffAccount(
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(currentUser);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const listener = () => setUser(currentUser);
     listeners.add(listener);
     setUser(currentUser);
+    setLoading(false);
     return () => {
       listeners.delete(listener);
     };
@@ -197,7 +199,7 @@ export function useAuth() {
       if (!permission) return true;
       if (isAdmin) return true;
       const permissions = user?.permissions;
-      if (!permissions || Object.keys(permissions).length === 0) return true;
+      if (!permissions || Object.keys(permissions).length === 0) return false;
       if (permissions[permission] === true) return true;
       return (PERMISSION_ALIASES[permission] || []).some((alias) => permissions[alias] === true);
     },
@@ -215,18 +217,18 @@ export function useAuth() {
         return (PERMISSION_ALIASES[permission] || []).some((alias) => permissions[alias] === true);
       }
 
-      if (user?.id) {
-        try {
-          const { data, error } = await supabase.rpc("user_has_permission", {
-            p_user_id: user.id,
-            p_permission_key: permission,
-          });
-          if (!error && data !== null) {
-            return data as boolean;
-          }
-        } catch {
-          // نرجع false لو فشل التحقق
+      if (!user?.id) return false;
+
+      try {
+        const { data, error } = await supabase.rpc("user_has_permission", {
+          p_user_id: user.id,
+          p_permission_key: permission,
+        });
+        if (!error && data !== null) {
+          return data as boolean;
         }
+      } catch {
+        // نرجع false لو فشل التحقق
       }
 
       return false;

@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Component, type ReactNode } from "react";
 import { Toaster } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import Layout from "@/components/layout/Layout";
@@ -91,10 +92,38 @@ function AdminRoute({ children, permission }: { children: React.ReactNode; permi
   return <>{children}</>;
 }
 
+class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: unknown) {
+    console.error("App error boundary caught error:", error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-navy-900 flex items-center justify-center p-6" dir="rtl">
+          <div className="rounded-3xl border border-red-500/20 bg-slate-950/90 p-6 text-center text-slate-200 shadow-2xl">
+            <h1 className="text-2xl font-black text-white">حدث خطأ غير متوقع</h1>
+            <p className="mt-3 text-slate-400">حدث خطأ أثناء عرض التطبيق. الرجاء إعادة تحميل الصفحة أو التحقق من الاتصال.</p>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 export default function App() {
   return (
     <BrowserRouter>
-      <Toaster
+      <AppErrorBoundary>
+        <Toaster
         position="top-left"
         toastOptions={{
           style: {
@@ -441,6 +470,7 @@ export default function App() {
         />
         <Route path="*" element={<NotFound />} />
       </Routes>
+      </AppErrorBoundary>
     </BrowserRouter>
   );
 }
