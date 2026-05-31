@@ -72,9 +72,17 @@ export default function Customers() {
   const loadStats = useCallback(async () => {
     setStatsLoading(true);
     try {
-      setStats(await getCustomerStats());
+      const stats = await getCustomerStats();
+      if (import.meta.env.DEV) {
+        console.log("[Customers.loadStats] Result:", stats);
+      }
+      setStats(stats);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر تحميل إحصائيات العملاء");
+      const errorMsg = err instanceof Error ? err.message : "تعذر تحميل إحصائيات العملاء";
+      if (import.meta.env.DEV) {
+        console.error("[Customers.loadStats] Error:", errorMsg);
+      }
+      setError(errorMsg);
     } finally {
       setStatsLoading(false);
     }
@@ -88,6 +96,10 @@ export default function Customers() {
     setError(null);
 
     try {
+      if (import.meta.env.DEV) {
+        console.log("[Customers.loadCustomers]", { search: debouncedSearch, branch: branchFilter, segment: segmentFilter, status: statusFilter, page });
+      }
+      
       const result = await getCustomers({
         search: debouncedSearch,
         branch: branchFilter,
@@ -98,13 +110,22 @@ export default function Customers() {
       });
 
       if (requestId !== requestIdRef.current) return;
+      
+      if (import.meta.env.DEV) {
+        console.log("[Customers.loadCustomers] Result:", { customersLength: result.customers.length, count: result.count });
+      }
+      
       setCustomers(result.customers);
       setTotalCount(result.count);
     } catch (err) {
       if (requestId !== requestIdRef.current) return;
+      const errorMsg = err instanceof Error ? err.message : "تعذر تحميل العملاء من customer_metrics_summary";
+      if (import.meta.env.DEV) {
+        console.error("[Customers.loadCustomers] Error:", errorMsg);
+      }
       setCustomers([]);
       setTotalCount(0);
-      setError(err instanceof Error ? err.message : "تعذر تحميل العملاء من customer_metrics_summary");
+      setError(errorMsg);
     } finally {
       if (requestId === requestIdRef.current) {
         setLoading(false);

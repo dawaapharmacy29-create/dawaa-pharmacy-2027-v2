@@ -107,7 +107,7 @@ function readFirst(row: Row | null | undefined, keys: string[], fallback: unknow
 }
 
 function isAll(value?: string | null) {
-  return !value || value === ALL_FILTER || value === "كل العملاء" || value === "كل التصنيفات" || value === "كل الحالات";
+  return !value || value === ALL_FILTER || value === "كل العملاء" || value === "كل التصنيفات" || value === "كل الحالات" || value === "كل الفروع";
 }
 
 function isUuidLike(value: unknown) {
@@ -248,9 +248,14 @@ export async function getCustomers(options: GetCustomersOptions = {}) {
 
   const limit = normalizeLimit(options.limit);
   const offset = Math.max(options.offset ?? 0, 0);
+  
+  if (import.meta.env.DEV) {
+    console.log("[getCustomers] Query Options:", { search: options.search, branch: options.branch, type: options.type, status: options.status, limit, offset });
+  }
+  
   let query = supabase
     .from(SUMMARY_TABLE)
-    .select("final_customer_key,customer_id,customer_code,customer_name,customer_phone,branch,invoices_count,total_spent,avg_invoice,first_purchase,last_purchase,active_months,avg_monthly,segment,customer_status", { count: "exact" });
+    .select("final_customer_key,customer_id,customer_code,customer_name,customer_phone,branch,invoices_count,total_spent,avg_invoice,first_purchase,last_purchase,active_months,avg_monthly,segment_value,segment,customer_status", { count: "exact" });
 
   query = applyListFilters(query, options);
 
@@ -260,10 +265,29 @@ export async function getCustomers(options: GetCustomersOptions = {}) {
     .order("last_purchase", { ascending: false, nullsFirst: false })
     .range(offset, offset + limit - 1);
 
-  if (error) throw new Error(`customer_metrics_summary: ${error.message}`);
+  if (import.meta.env.DEV) {
+    console.log("[getCustomers] Raw Supabase Response:", { 
+      dataLength: data?.length ?? 0, 
+      count, 
+      hasError: !!error,
+      errorMsg: error?.message,
+      firstRow: data?.[0],
+    });
+  }
+
+  if (error) {
+    console.error("[getCustomers] Supabase Error:", error);
+    throw new Error(`customer_metrics_summary: ${error.message}`);
+  }
+
+  const mapped = ((data ?? []) as Row[]).map(normalizeCustomerMetric);
+  
+  if (import.meta.env.DEV && mapped.length > 0) {
+    console.log("[getCustomers] First Mapped Customer:", mapped[0]);
+  }
 
   return {
-    customers: ((data ?? []) as Row[]).map(normalizeCustomerMetric),
+    customers: mapped,
     count: count ?? 0,
     limit,
     offset,
@@ -276,6 +300,9 @@ async function countRows(options: GetCustomersOptions = {}) {
     .select("final_customer_key", { count: "exact", head: true });
   query = applyListFilters(query, options);
   const { count, error } = await query;
+  if (import.meta.env.DEV && (options.type || options.status)) {
+    console.log("[countRows]", options, "=>", count);
+  }
   if (error) throw new Error(`customer_metrics_summary: ${error.message}`);
   return count ?? 0;
 }
@@ -283,6 +310,10 @@ async function countRows(options: GetCustomersOptions = {}) {
 export async function getCustomerStats(): Promise<CustomerStats> {
   if (!isSupabaseConfigured) {
     throw new Error("إعدادات Supabase غير موجودة.");
+  }
+
+  if (import.meta.env.DEV) {
+    console.log("[getCustomerStats] Starting stats calculation...");
   }
 
   const [
@@ -308,6 +339,10 @@ export async function getCustomerStats(): Promise<CustomerStats> {
     countRows({ status: "متوقف" }),
     countRows({ status: "بدون شراء" }),
   ]);
+
+  if (import.meta.env.DEV) {
+    console.log("[getCustomerStats] Complete:", { total, veryImportant, important, medium, normal, newC, active, atRisk, stopped, noPurchase });
+  }
 
   return {
     total,
