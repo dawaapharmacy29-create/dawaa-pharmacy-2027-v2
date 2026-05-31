@@ -145,7 +145,7 @@ export function normalizeCustomerMetric(row: Row): CustomerMetric {
   const name = readFirst(row, ["customer_name"], null) as string | null;
 
   return {
-    id: String(customerId || finalKey || customerCode || phone || crypto.randomUUID()),
+    id: String(finalKey || customerId || customerCode || phone || crypto.randomUUID()),
     final_customer_key: finalKey,
     customer_id: customerId,
     customer_code: customerCode,
@@ -272,6 +272,7 @@ export async function getCustomers(options: GetCustomersOptions = {}) {
       hasError: !!error,
       errorMsg: error?.message,
       firstRow: data?.[0],
+      filters: options,
     });
   }
 
@@ -281,6 +282,22 @@ export async function getCustomers(options: GetCustomersOptions = {}) {
   }
 
   const mapped = ((data ?? []) as Row[]).map(normalizeCustomerMetric);
+  
+  if (!options.search?.trim() && isAll(options.branch) && isAll(options.type) && isAll(options.status) && count === 0) {
+    const fallback = await supabase
+      .from(SUMMARY_TABLE)
+      .select("final_customer_key,customer_name,segment,customer_status,avg_monthly")
+      .order("avg_monthly", { ascending: false, nullsFirst: false })
+      .limit(5);
+
+    if (import.meta.env.DEV) {
+      console.log("[getCustomers] Fallback probe query (no filters, zero results):", {
+        fallbackCount: fallback.data?.length ?? 0,
+        fallbackFirstRow: fallback.data?.[0],
+        fallbackError: fallback.error?.message,
+      });
+    }
+  }
   
   if (import.meta.env.DEV && mapped.length > 0) {
     console.log("[getCustomers] First Mapped Customer:", mapped[0]);

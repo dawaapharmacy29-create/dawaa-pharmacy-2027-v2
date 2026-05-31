@@ -119,9 +119,10 @@ export default function Customers() {
       setTotalCount(result.count);
     } catch (err) {
       if (requestId !== requestIdRef.current) return;
-      const errorMsg = err instanceof Error ? err.message : "تعذر تحميل العملاء من customer_metrics_summary";
+      const source = err instanceof Error ? err.message : "غير معروف";
+      const errorMsg = `تعذر تحميل ملخصات العملاء: ${source}`;
       if (import.meta.env.DEV) {
-        console.error("[Customers.loadCustomers] Error:", errorMsg);
+        console.error("[Customers.loadCustomers] Error:", source);
       }
       setCustomers([]);
       setTotalCount(0);
