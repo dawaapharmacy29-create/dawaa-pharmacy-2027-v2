@@ -5,10 +5,13 @@ import {
   AlertTriangle,
   BellRing,
   CalendarDays,
+  CheckCircle2,
   ClipboardList,
+  Database,
   HeadphonesIcon,
   Loader2,
   RefreshCw,
+  SearchX,
   ShoppingCart,
   Stethoscope,
   TrendingUp,
@@ -19,8 +22,6 @@ import {
 import {
   Area,
   AreaChart,
-  Bar,
-  BarChart,
   CartesianGrid,
   ResponsiveContainer,
   Tooltip,
@@ -31,6 +32,7 @@ import { supabase } from "@/lib/supabase";
 import { formatCycleDate, getCurrentCycle } from "@/lib/pharmacy-cycle";
 import {
   ALL_BRANCHES,
+  ALL_BRANCHES_LABEL,
   fetchExecutiveDashboardSummary,
   type DashboardActivity,
   type DashboardNotification,
@@ -38,27 +40,28 @@ import {
   type DeliveryPerformanceSummary,
   type FollowupPerformanceSummary,
   type SalesDailySummary,
+  type SourceError,
   type StaffSalesSummary,
 } from "@/lib/dashboardSummaryService";
 import { formatMoney, formatNumber } from "@/lib/dawaa2027";
 
 const cx = (...items: Array<string | false | null | undefined>) => items.filter(Boolean).join(" ");
 
-function isAvailable(value: number | null | undefined) {
+function hasValue(value: number | null | undefined) {
   return value !== null && value !== undefined && Number.isFinite(Number(value));
 }
 
-function valueNumber(value: number | null | undefined) {
-  return isAvailable(value) ? Number(value) : null;
+function numberValue(value: number | null | undefined) {
+  return hasValue(value) ? Number(value) : null;
 }
 
 function displayCount(value: number | null | undefined) {
-  const numeric = valueNumber(value);
+  const numeric = numberValue(value);
   return numeric === null ? "غير متاح" : formatNumber(numeric);
 }
 
 function displayMoney(value: number | null | undefined) {
-  const numeric = valueNumber(value);
+  const numeric = numberValue(value);
   return numeric === null ? "غير متاح" : formatMoney(numeric);
 }
 
@@ -69,6 +72,13 @@ function displayDate(value: string | null | undefined) {
   return date.toLocaleString("ar-EG", { dateStyle: "short", timeStyle: "short" });
 }
 
+function displayShortTime(value: string | null) {
+  if (!value) return "لم يتم التحديث بعد";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "لم يتم التحديث بعد";
+  return date.toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
+}
+
 function dayLabel(value: string) {
   const date = new Date(`${value}T12:00:00`);
   if (Number.isNaN(date.getTime())) return value || "غير محدد";
@@ -77,9 +87,13 @@ function dayLabel(value: string) {
 
 function priorityClass(priority?: string | null) {
   const value = String(priority || "").toLowerCase();
-  if (value.includes("urgent") || value.includes("عاجل")) return "border-rose-500/30 bg-rose-500/10 text-rose-200";
-  if (value.includes("high") || value.includes("مرتفع")) return "border-amber-500/30 bg-amber-500/10 text-amber-200";
-  return "border-teal-500/25 bg-teal-500/10 text-teal-200";
+  if (value.includes("urgent") || value.includes("عاجل")) return "border-red-200 bg-red-50 text-red-700";
+  if (value.includes("high") || value.includes("مرتفع")) return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-teal-200 bg-teal-50 text-teal-700";
+}
+
+function errorFor(errors: SourceError[], source: string) {
+  return errors.find((item) => item.source === source)?.message || null;
 }
 
 function sumFollowups(rows: FollowupPerformanceSummary[]) {
@@ -120,23 +134,23 @@ function aggregateBranches(rows: SalesDailySummary[]) {
     .map((row) => ({
       ...row,
       avgInvoice: row.invoicesCount ? row.netTotal / row.invoicesCount : 0,
-      percent: total ? (row.netTotal / total) * 100 : 0,
+      share: total ? (row.netTotal / total) * 100 : 0,
     }))
     .sort((a, b) => b.netTotal - a.netTotal);
 }
 
-function aggregateShifts(rows: SalesDailySummary[]) {
-  const byShift = new Map<string, { shift: string; netTotal: number; invoicesCount: number }>();
-  for (const row of rows) {
-    if (!row.shift) continue;
-    const current = byShift.get(row.shift) || { shift: row.shift, netTotal: 0, invoicesCount: 0 };
-    current.netTotal += row.netTotal;
-    current.invoicesCount += row.invoicesCount;
-    byShift.set(row.shift, current);
+function getSalesOverview(rows: Array<{ saleDate: string; netTotal: number; invoicesCount: number; label: string }>) {
+  if (!rows.length) {
+    return { total: 0, activeDays: 0, bestDay: null as null | (typeof rows)[number], lowestDay: null as null | (typeof rows)[number] };
   }
-  return [...byShift.values()]
-    .map((row) => ({ ...row, avgInvoice: row.invoicesCount ? row.netTotal / row.invoicesCount : 0 }))
-    .sort((a, b) => b.netTotal - a.netTotal);
+
+  const activeRows = rows.filter((row) => row.netTotal > 0);
+  return {
+    total: rows.reduce((sum, row) => sum + row.netTotal, 0),
+    activeDays: activeRows.length,
+    bestDay: [...rows].sort((a, b) => b.netTotal - a.netTotal)[0] || null,
+    lowestDay: activeRows.sort((a, b) => a.netTotal - b.netTotal)[0] || null,
+  };
 }
 
 export default function ExecutiveDashboard2027() {
@@ -147,18 +161,14 @@ export default function ExecutiveDashboard2027() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshingSummaries, setRefreshingSummaries] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [lastRefreshed, setLastRefreshed] = useState<string | null>(null);
 
   const loadSummary = async () => {
     setLoading(true);
-    setError(null);
     try {
       const result = await fetchExecutiveDashboardSummary({ startDate: periodStart, endDate: periodEnd, branch });
       setSummary(result);
-      setError(result.errors.length ? result.errors.join(" | ") : null);
-    } catch (err) {
-      setSummary(null);
-      setError(err instanceof Error ? err.message : "تعذر تحميل بيانات لوحة القيادة.");
+      setLastRefreshed(new Date().toISOString());
     } finally {
       setLoading(false);
     }
@@ -169,6 +179,16 @@ export default function ExecutiveDashboard2027() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodStart, periodEnd, branch]);
 
+  const errors = summary?.errors || [];
+  const kpis = summary?.kpis || null;
+  const sourceHealth = summary?.sourceHealth;
+  const dataHealth = summary?.dataHealth;
+  const hasInvoiceRows = numberValue(kpis?.invoicesCount) !== 0;
+  const urgentNotifications = useMemo(
+    () => (summary?.notifications || []).filter((item) => /urgent|high|عاجل|مرتفع/i.test(String(item.priority || ""))).length,
+    [summary],
+  );
+
   const branchOptions = useMemo(() => {
     const values = new Set<string>([ALL_BRANCHES]);
     summary?.dailySales.forEach((row) => row.branch && values.add(row.branch));
@@ -178,324 +198,519 @@ export default function ExecutiveDashboard2027() {
   }, [summary]);
 
   const dailyTrend = useMemo(() => {
-    const byDay = new Map<string, { day: string; netTotal: number; invoicesCount: number }>();
+    const byDay = new Map<string, { saleDate: string; netTotal: number; invoicesCount: number }>();
     for (const row of summary?.dailySales || []) {
-      const current = byDay.get(row.day) || { day: row.day, netTotal: 0, invoicesCount: 0 };
+      const current = byDay.get(row.saleDate) || { saleDate: row.saleDate, netTotal: 0, invoicesCount: 0 };
       current.netTotal += row.netTotal;
       current.invoicesCount += row.invoicesCount;
-      byDay.set(row.day, current);
+      byDay.set(row.saleDate, current);
     }
     return [...byDay.values()]
-      .sort((a, b) => a.day.localeCompare(b.day))
-      .map((row) => ({ ...row, label: dayLabel(row.day) }));
+      .sort((a, b) => a.saleDate.localeCompare(b.saleDate))
+      .map((row) => ({ ...row, label: dayLabel(row.saleDate) }));
   }, [summary]);
 
   const branchRows = useMemo(() => aggregateBranches(summary?.dailySales || []), [summary]);
-  const shiftRows = useMemo(() => aggregateShifts(summary?.dailySales || []), [summary]);
   const followupTotals = useMemo(() => sumFollowups(summary?.followupPerformance || []), [summary]);
-  const urgentNotifications = useMemo(
-    () => (summary?.notifications || []).filter((item) => /urgent|high|عاجل|مرتفع/i.test(String(item.priority || ""))).length,
-    [summary],
-  );
-  const hasNoInvoices = summary?.kpis && valueNumber(summary.kpis.invoicesCount) === 0;
+  const salesOverview = useMemo(() => getSalesOverview(dailyTrend), [dailyTrend]);
 
   const refreshDashboardSummaries = async () => {
     setRefreshingSummaries(true);
     try {
-      const { error: refreshError } = await supabase.rpc("refresh_dashboard_summaries");
-      if (refreshError) setError(`refresh_dashboard_summaries: ${refreshError.message}`);
+      await supabase.rpc("refresh_dashboard_summaries");
       await loadSummary();
     } finally {
       setRefreshingSummaries(false);
     }
   };
 
+  const actionCards = [
+    {
+      label: "متابعات متأخرة",
+      value: displayCount(kpis?.overdueFollowups ?? followupTotals.overdueCount),
+      recommendation: "راجع الحالات المتأخرة قبل نهاية الوردية",
+      reason: errorFor(errors, "get_dashboard_kpis") || errorFor(errors, "followup_performance_summary"),
+      route: "/customer-service",
+      tone: "danger" as const,
+      icon: AlertTriangle,
+    },
+    {
+      label: "مهام مستحقة اليوم",
+      value: hasValue(kpis?.tasksDueToday) ? displayCount(kpis?.tasksDueToday) : "غير متاح حاليًا",
+      recommendation: "وزع المهام حسب الأولوية",
+      reason: hasValue(kpis?.tasksDueToday) ? null : "غير متوفر في get_dashboard_kpis حاليًا",
+      route: "/operations-center",
+      tone: "warning" as const,
+      icon: ClipboardList,
+    },
+    {
+      label: "فواتير تحتاج ربط عميل",
+      value: displayCount(kpis?.invoicesWithoutCustomerCode ?? dataHealth?.invoicesWithoutCustomerCode),
+      recommendation: "اربط الفواتير قبل تحليل العملاء",
+      reason: dataHealth?.error || null,
+      route: "/invoices",
+      tone: "warning" as const,
+      icon: Users,
+    },
+    {
+      label: "فواتير بدون دكتور",
+      value: displayCount(kpis?.invoicesWithoutSellerName ?? dataHealth?.invoicesWithoutSellerName),
+      recommendation: "أكمل اسم الدكتور لتحسين تقييم الفريق",
+      reason: dataHealth?.error || null,
+      route: "/invoices",
+      tone: "warning" as const,
+      icon: Stethoscope,
+    },
+    {
+      label: "فواتير بدون فرع",
+      value: displayCount(kpis?.invoicesWithoutBranch ?? dataHealth?.invoicesWithoutBranch),
+      recommendation: "راجع بيانات الاستيراد والفرع",
+      reason: dataHealth?.error || null,
+      route: "/invoices",
+      tone: "warning" as const,
+      icon: Database,
+    },
+    {
+      label: "تنبيهات عاجلة",
+      value: displayCount(urgentNotifications),
+      recommendation: "ابدأ بالتنبيهات الأعلى أولوية",
+      reason: errorFor(errors, "notifications"),
+      route: "/notifications",
+      tone: urgentNotifications ? "danger" as const : "info" as const,
+      icon: BellRing,
+    },
+    {
+      label: "عملاء مهمين يحتاجون متابعة",
+      value: "غير متاح حاليًا",
+      recommendation: "سيتم ربطها لاحقًا من customer_metrics_summary",
+      reason: "مصدر العملاء لم يدخل هذه المرحلة",
+      route: "/customers",
+      tone: "info" as const,
+      icon: HeadphonesIcon,
+    },
+    {
+      label: "شكاوى تحتاج مدير",
+      value: "غير متاح حاليًا",
+      recommendation: "تحتاج مصدر شكاوى صريح قبل العرض",
+      reason: "لا يوجد عداد شكاوى موثوق في مصادر هذه المرحلة",
+      route: "/customer-service",
+      tone: "danger" as const,
+      icon: SearchX,
+    },
+  ];
+
   return (
-    <div className="space-y-5" dir="rtl">
-      <section className="rounded-3xl border border-teal-400/15 bg-[#0f2038] p-5 shadow-2xl shadow-black/10">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="text-xs font-bold text-teal-200">DAWAA PHARMACY 2027</div>
-            <h1 className="mt-1 text-3xl font-black text-white">لوحة القيادة 2027</h1>
-            <p className="mt-2 text-sm text-slate-300">
-              الدورة الحالية: {periodStart} إلى {periodEnd} · المصدر الرئيسي: get_dashboard_kpis وملخصات Supabase
-            </p>
+    <div className="dawaa-dashboard-light min-h-full space-y-5" dir="rtl">
+      <section className="dawaa-hero">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="dawaa-brand-chip">Dawaa Pharmacy 2027</span>
+            <span className="dawaa-source-badge">المصدر: Summary Views + RPC</span>
           </div>
-          <div className="grid gap-2 sm:grid-cols-[150px_150px_170px_auto]">
-            <input className="input-dark" type="date" value={periodStart} onChange={(event) => setPeriodStart(event.target.value)} />
-            <input className="input-dark" type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} />
-            <select className="input-dark" value={branch} onChange={(event) => setBranch(event.target.value)}>
-              {branchOptions.map((item) => <option key={item}>{item}</option>)}
-            </select>
-            <button
-              type="button"
-              className="btn-secondary inline-flex items-center justify-center gap-2"
-              onClick={refreshDashboardSummaries}
-              disabled={loading || refreshingSummaries}
-            >
-              <RefreshCw className={cx("h-4 w-4", refreshingSummaries && "animate-spin")} />
-              تحديث الملخصات
-            </button>
+          <h1 className="mt-3 text-2xl font-black text-slate-950 md:text-3xl">لوحة القيادة 2027</h1>
+          <p className="mt-1 text-sm font-semibold text-slate-600">مركز قيادة موحد للمبيعات والعملاء والمتابعات والفريق</p>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-slate-500">
+            <CalendarDays className="h-4 w-4 text-teal-600" />
+            <span>الدورة الحالية: {periodStart} إلى {periodEnd}</span>
+            <span className="rounded-full bg-slate-100 px-2 py-1">آخر تحديث: {displayShortTime(lastRefreshed)}</span>
           </div>
         </div>
-        <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-xs text-slate-300">
-          ملاحظة المصدر: لا يتم تحميل جدول sales_invoices بالكامل في هذه اللوحة. كل أرقام المبيعات تأتي من RPC أو summary views.
+
+        <div className="dawaa-controls">
+          <select className="dawaa-input min-w-[150px]" value={branch} onChange={(event) => setBranch(event.target.value)} aria-label="اختيار الفرع">
+            {branchOptions.map((item) => <option key={item} value={item}>{item === ALL_BRANCHES ? ALL_BRANCHES_LABEL : item}</option>)}
+          </select>
+          <input className="dawaa-input w-[145px]" type="date" value={periodStart} onChange={(event) => setPeriodStart(event.target.value)} aria-label="بداية الفترة" />
+          <input className="dawaa-input w-[145px]" type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} aria-label="نهاية الفترة" />
+          <button
+            type="button"
+            className="dawaa-button-primary"
+            onClick={refreshDashboardSummaries}
+            disabled={loading || refreshingSummaries}
+          >
+            <RefreshCw className={cx("h-4 w-4", refreshingSummaries && "animate-spin")} />
+            تحديث الملخصات
+          </button>
         </div>
       </section>
 
       {loading && (
-        <div className="rounded-3xl border border-white/10 bg-[#10213a]/90 p-6 text-center text-slate-200">
-          <Loader2 className="mx-auto mb-3 h-7 w-7 animate-spin text-teal-300" />
+        <div className="dawaa-loading">
+          <Loader2 className="h-5 w-5 animate-spin text-teal-600" />
           جاري تحميل ملخصات لوحة القيادة...
         </div>
       )}
 
-      {!loading && error && (
-        <div className="rounded-3xl border border-amber-500/25 bg-amber-500/10 p-4 text-sm text-amber-100">
-          {error}
-        </div>
+      {!loading && errors.length > 0 && (
+        <details className="dawaa-error-details">
+          <summary>تفاصيل الخطأ في مصادر البيانات</summary>
+          <div className="mt-3 grid gap-2">
+            {errors.map((item) => (
+              <div key={`${item.source}-${item.message}`} className="rounded-xl bg-white p-3 text-xs text-slate-700">
+                <b>{item.source}</b>: {item.message}
+              </div>
+            ))}
+          </div>
+        </details>
       )}
 
-      {!loading && hasNoInvoices && (
-        <div className="rounded-3xl border border-slate-500/25 bg-slate-500/10 p-4 text-sm text-slate-200">
-          لا توجد فواتير في الفترة المحددة حسب get_dashboard_kpis.
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+        <KpiCard label="صافي مبيعات الفترة" value={displayMoney(kpis?.netSales)} subtitle="صافي قيمة الدورة" source="get_dashboard_kpis" icon={Wallet} loading={loading} sourceError={errorFor(errors, "get_dashboard_kpis")} empty={!hasInvoiceRows} />
+        <KpiCard label="عدد الفواتير" value={displayCount(kpis?.invoicesCount)} subtitle="فواتير الفترة المحددة" source="get_dashboard_kpis" icon={ShoppingCart} loading={loading} sourceError={errorFor(errors, "get_dashboard_kpis")} empty={!hasInvoiceRows} />
+        <KpiCard label="متوسط الفاتورة" value={displayMoney(kpis?.avgInvoice)} subtitle="متوسط صافي الفاتورة" source="get_dashboard_kpis" icon={TrendingUp} loading={loading} sourceError={errorFor(errors, "get_dashboard_kpis")} empty={!hasInvoiceRows} />
+        <KpiCard label="العملاء المشترين" value={displayCount(kpis?.uniqueCustomers)} subtitle="عملاء لديهم شراء" source="get_dashboard_kpis" icon={Users} loading={loading} sourceError={errorFor(errors, "get_dashboard_kpis")} empty={!hasInvoiceRows} />
+        <KpiCard label="المتابعات المتأخرة" value={displayCount(kpis?.overdueFollowups ?? followupTotals.overdueCount)} subtitle="تحتاج تدخل إداري" source="get_dashboard_kpis" icon={AlertTriangle} loading={loading} sourceError={errorFor(errors, "get_dashboard_kpis")} tone="danger" />
+        <KpiCard label="التنبيهات العاجلة" value={displayCount(urgentNotifications)} subtitle="من جدول التنبيهات" source="notifications" icon={BellRing} loading={loading} sourceError={errorFor(errors, "notifications")} tone={urgentNotifications ? "danger" : "teal"} />
+      </section>
+
+      <Panel title="مركز القرار السريع" source="RPC + summary views + lightweight counts" featured>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {actionCards.map((card) => <ActionCard key={card.label} {...card} />)}
         </div>
-      )}
+      </Panel>
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <Kpi label="صافي مبيعات الفترة" value={displayMoney(summary?.kpis?.netSales)} source="get_dashboard_kpis" icon={Wallet} loading={loading} />
-        <Kpi label="عدد الفواتير" value={displayCount(summary?.kpis?.invoicesCount)} source="get_dashboard_kpis" icon={ShoppingCart} loading={loading} />
-        <Kpi label="متوسط الفاتورة" value={displayMoney(summary?.kpis?.avgInvoice)} source="get_dashboard_kpis" icon={TrendingUp} loading={loading} />
-        <Kpi label="عدد العملاء المشترين" value={displayCount(summary?.kpis?.uniqueCustomers)} source="get_dashboard_kpis" icon={Users} loading={loading} />
-        <Kpi label="عدد الدكاترة النشطين" value={displayCount(summary?.kpis?.activeDoctors)} source="get_dashboard_kpis" icon={Stethoscope} loading={loading} />
-        <Kpi label="عدد الدليفري النشطين" value={displayCount(summary?.kpis?.activeDelivery)} source="get_dashboard_kpis" icon={Truck} loading={loading} />
-        <Kpi label="المتابعات المستحقة" value={displayCount(summary?.kpis?.dueFollowups)} source="get_dashboard_kpis" icon={CalendarDays} loading={loading} />
-        <Kpi label="المتابعات المتأخرة" value={displayCount(summary?.kpis?.overdueFollowups)} source="get_dashboard_kpis" icon={AlertTriangle} loading={loading} tone="danger" />
-        <Kpi label="التنبيهات العاجلة" value={displayCount(urgentNotifications)} source="notifications" icon={BellRing} loading={loading} tone={urgentNotifications ? "danger" : "teal"} />
-        <Kpi label="سجل أنشطة اليوم" value={displayCount(summary?.activity.length ?? null)} source="activity_log" icon={Activity} loading={loading} />
-      </section>
-
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi label="نسبة تحقيق الهدف" value="غير محدد" source="لم يتم ربط التارجت في ملخصات هذه المرحلة" icon={ClipboardList} loading={loading} />
-        <Kpi label="الربح الإجمالي" value="غير متاح" source="لا يوجد هامش ربح فعلي" icon={Wallet} loading={loading} />
-        <Kpi label="المتابعات المكتملة" value={displayCount(followupTotals.completedCount)} source="followup_performance_summary" icon={HeadphonesIcon} loading={loading} />
-        <Kpi label="شراء بعد المتابعة" value={displayMoney(followupTotals.purchaseAfterFollowupAmount)} source="followup_performance_summary" icon={ShoppingCart} loading={loading} />
-      </section>
-
-      <section className="grid gap-4 xl:grid-cols-[1.3fr_.9fr]">
-        <Panel title="اتجاه المبيعات اليومي" source="sales_daily_summary">
+      <section className="grid gap-4 xl:grid-cols-[1.45fr_.9fr]">
+        <Panel title="نظرة المبيعات" source="sales_daily_summary.sale_date">
+          <div className="mb-4 grid gap-2 sm:grid-cols-4">
+            <MiniStat label="إجمالي الفترة" value={formatMoney(salesOverview.total)} />
+            <MiniStat label="أفضل يوم" value={salesOverview.bestDay ? `${salesOverview.bestDay.label} · ${formatMoney(salesOverview.bestDay.netTotal)}` : "غير متاح"} />
+            <MiniStat label="أقل يوم" value={salesOverview.lowestDay ? `${salesOverview.lowestDay.label} · ${formatMoney(salesOverview.lowestDay.netTotal)}` : "غير متاح"} />
+            <MiniStat label="أيام نشطة" value={formatNumber(salesOverview.activeDays)} />
+          </div>
           {dailyTrend.length ? (
-            <div className="h-72">
+            <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={dailyTrend}>
                   <defs>
-                    <linearGradient id="salesNetArea" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#2dd4bf" stopOpacity={0.45} />
-                      <stop offset="95%" stopColor="#2dd4bf" stopOpacity={0.03} />
+                    <linearGradient id="salesNetAreaLight" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#00AFA5" stopOpacity={0.34} />
+                      <stop offset="95%" stopColor="#00AFA5" stopOpacity={0.03} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,.14)" />
-                  <XAxis dataKey="label" stroke="#94a3b8" fontSize={11} />
-                  <YAxis stroke="#94a3b8" fontSize={11} width={70} />
-                  <Tooltip formatter={(value) => formatMoney(Number(value || 0))} labelStyle={{ color: "#0f172a" }} />
-                  <Area type="monotone" dataKey="netTotal" stroke="#5eead4" strokeWidth={3} fill="url(#salesNetArea)" name="صافي المبيعات" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E5EAF0" />
+                  <XAxis dataKey="label" stroke="#64748B" fontSize={11} />
+                  <YAxis stroke="#64748B" fontSize={11} width={72} />
+                  <Tooltip formatter={(value) => formatMoney(Number(value || 0))} contentStyle={{ borderRadius: 14, borderColor: "#DDE7F0" }} labelStyle={{ color: "#0F172A" }} />
+                  <Area type="monotone" dataKey="netTotal" stroke="#00AFA5" strokeWidth={3} fill="url(#salesNetAreaLight)" name="صافي المبيعات" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
-          ) : <Empty text="لا توجد بيانات مبيعات يومية للفترة المحددة." />}
+          ) : <Empty text={sourceHealth?.salesSummaryAvailable ? "لا توجد مبيعات في الفترة المحددة" : "غير متاح - sales_daily_summary غير متوفر"} />}
         </Panel>
 
         <Panel title="أداء الفروع" source="sales_daily_summary">
-          <div className="space-y-2">
-            {branchRows.length ? branchRows.map((row) => (
-              <div key={row.branch} className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="font-bold text-white">{row.branch}</div>
-                  <div className="text-sm font-black text-teal-300">{formatMoney(row.netTotal)}</div>
-                </div>
-                <div className="mt-2 grid grid-cols-4 gap-2 text-xs text-slate-300">
-                  <span>{formatNumber(row.invoicesCount)} فاتورة</span>
-                  <span>{formatMoney(row.avgInvoice)} متوسط</span>
-                  <span>{formatNumber(row.uniqueCustomers)} عميل</span>
-                  <span>{row.percent.toFixed(1)}%</span>
-                </div>
-              </div>
-            )) : <Empty text="لا توجد بيانات فروع في sales_daily_summary." />}
-          </div>
+          <BranchPerformance rows={branchRows} available={Boolean(sourceHealth?.salesSummaryAvailable)} />
         </Panel>
       </section>
 
-      {!!shiftRows.length && (
-        <Panel title="أداء الشيفتات" source="sales_daily_summary">
-          <div className="h-60">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={shiftRows}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,.14)" />
-                <XAxis dataKey="shift" stroke="#94a3b8" fontSize={11} />
-                <YAxis stroke="#94a3b8" fontSize={11} width={70} />
-                <Tooltip formatter={(value) => formatMoney(Number(value || 0))} labelStyle={{ color: "#0f172a" }} />
-                <Bar dataKey="netTotal" name="صافي المبيعات" fill="#14b8a6" radius={[8, 8, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Panel>
-      )}
-
       <section className="grid gap-4 xl:grid-cols-2">
         <Panel title="ترتيب الدكاترة" source="staff_sales_summary">
-          <DoctorsTable rows={summary?.staffSales || []} />
+          <DoctorsTable rows={summary?.staffSales || []} available={Boolean(sourceHealth?.staffSummaryAvailable)} />
         </Panel>
         <Panel title="ترتيب الدليفري" source="delivery_performance_summary">
-          <DeliveryTable rows={summary?.deliveryPerformance || []} />
+          <DeliveryTable rows={summary?.deliveryPerformance || []} available={Boolean(sourceHealth?.deliverySummaryAvailable)} />
         </Panel>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-3">
-        <Panel title="متابعة العملاء" source="followup_performance_summary">
-          <div className="grid grid-cols-2 gap-2">
-            <MiniStat label="المسندة" value={formatNumber(followupTotals.assignedCount)} />
-            <MiniStat label="المكتملة" value={formatNumber(followupTotals.completedCount)} />
-            <MiniStat label="المتأخرة" value={formatNumber(followupTotals.overdueCount)} tone="danger" />
-            <MiniStat label="لم يرد" value={formatNumber(followupTotals.noAnswerCount)} />
-            <MiniStat label="مؤجل" value={formatNumber(followupTotals.postponedCount)} />
-            <MiniStat label="يحتاج مدير" value={formatNumber(followupTotals.needsManagerCount)} tone="danger" />
-          </div>
-          <div className="mt-3 rounded-2xl border border-teal-500/20 bg-teal-500/10 p-3 text-sm text-teal-100">
-            شراء بعد المتابعة: <b>{formatMoney(followupTotals.purchaseAfterFollowupAmount)}</b>
-          </div>
+        <Panel title="أداء المتابعات" source="followup_performance_summary.followup_date">
+          <FollowupPerformance totals={followupTotals} available={Boolean(sourceHealth?.followupSummaryAvailable)} />
         </Panel>
+        <Panel title="صحة البيانات" source="lightweight sales_invoices counts">
+          <DataHealthPanel summary={summary} />
+        </Panel>
+        <Panel title="حالة الملخصات" source="source health">
+          <SourceHealthPanel summary={summary} />
+        </Panel>
+      </section>
 
+      <section className="grid gap-4 xl:grid-cols-2">
         <Panel title="التنبيهات" source="notifications">
-          <NotificationsList rows={summary?.notifications || []} />
+          <NotificationsList rows={summary?.notifications || []} available={Boolean(sourceHealth?.notificationsAvailable)} />
         </Panel>
-
         <Panel title="سجل النشاط" source="activity_log">
-          <ActivityList rows={summary?.activity || []} />
+          <ActivityList rows={summary?.activity || []} available={Boolean(sourceHealth?.activityLogAvailable)} />
         </Panel>
       </section>
     </div>
   );
 }
 
-function Kpi({
+function KpiCard({
   label,
   value,
+  subtitle,
   source,
   icon: Icon,
   loading,
+  sourceError,
+  empty,
   tone = "teal",
 }: {
   label: string;
   value: ReactNode;
+  subtitle: string;
   source: string;
   icon: ElementType;
   loading: boolean;
+  sourceError?: string | null;
+  empty?: boolean;
   tone?: "teal" | "danger";
 }) {
-  const color = tone === "danger" ? "text-rose-300 bg-rose-500/12" : "text-teal-300 bg-teal-500/12";
+  const iconClass = tone === "danger" ? "bg-red-50 text-red-600" : "bg-teal-50 text-teal-700";
+  const state = sourceError ? "غير متاح" : empty ? "لا توجد بيانات" : null;
   return (
-    <div className="rounded-3xl border border-white/10 bg-[#12233d]/90 p-4 shadow-xl shadow-black/10">
+    <div className="dawaa-card min-h-[154px]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-xs font-semibold text-slate-400">{label}</div>
-          <div className="mt-2 text-2xl font-black text-white">{loading ? "..." : value}</div>
-          <div className="mt-2 text-[11px] font-semibold text-slate-400">المصدر: {source}</div>
+          <div className="text-xs font-bold text-slate-500">{label}</div>
+          <div className="mt-2 text-2xl font-black text-slate-950">{loading ? "..." : state || value}</div>
+          <div className="mt-1 text-xs leading-5 text-slate-500">{sourceError ? "راجع تفاصيل مصادر البيانات" : empty ? "لا توجد بيانات في الفترة المحددة" : subtitle}</div>
         </div>
-        <div className={cx("rounded-2xl p-3", color)}><Icon className="h-6 w-6" /></div>
+        <div className={cx("rounded-2xl p-3", iconClass)}><Icon className="h-5 w-5" /></div>
       </div>
+      <div className="mt-4 text-[11px] font-bold text-slate-400">المصدر: {source}</div>
     </div>
   );
 }
 
-function Panel({ title, source, children }: { title: string; source: string; children: ReactNode }) {
+function ActionCard({
+  label,
+  value,
+  recommendation,
+  reason,
+  route,
+  tone,
+  icon: Icon,
+}: {
+  label: string;
+  value: ReactNode;
+  recommendation: string;
+  reason?: string | null;
+  route?: string;
+  tone: "danger" | "warning" | "info";
+  icon: ElementType;
+}) {
+  const colors = {
+    danger: "border-red-200 bg-red-50 text-red-700",
+    warning: "border-amber-200 bg-amber-50 text-amber-700",
+    info: "border-blue-200 bg-blue-50 text-blue-700",
+  };
+  const iconColors = {
+    danger: "bg-white text-red-600",
+    warning: "bg-white text-amber-600",
+    info: "bg-white text-blue-600",
+  };
+  const content = (
+    <div className={cx("min-h-[138px] rounded-2xl border p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md", colors[tone])}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="text-sm font-black">{label}</div>
+        <span className={cx("rounded-xl p-2", iconColors[tone])}><Icon className="h-4 w-4" /></span>
+      </div>
+      <div className="mt-3 text-2xl font-black text-slate-950">{reason ? "غير متاح حاليًا" : value}</div>
+      <div className="mt-2 line-clamp-2 text-xs font-semibold opacity-80">{reason || recommendation}</div>
+    </div>
+  );
+  return route ? <Link to={route}>{content}</Link> : content;
+}
+
+function Panel({ title, source, children, featured = false }: { title: string; source: string; children: ReactNode; featured?: boolean }) {
   return (
-    <section className="rounded-3xl border border-white/10 bg-[#10213a]/92 p-4 shadow-xl shadow-black/10">
+    <section className={cx("dawaa-panel", featured && "border-teal-200 bg-gradient-to-b from-white to-teal-50/45")}>
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="text-base font-black text-white">{title}</h2>
-        <span className="text-[11px] font-bold text-slate-400">المصدر: {source}</span>
+        <h2 className="text-lg font-black text-slate-950">{title}</h2>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-bold text-slate-500">المصدر: {source}</span>
       </div>
       {children}
     </section>
   );
 }
 
-function DoctorsTable({ rows }: { rows: StaffSalesSummary[] }) {
+function BranchPerformance({ rows, available }: { rows: ReturnType<typeof aggregateBranches>; available: boolean }) {
+  if (!available) return <Empty text="غير متاح - sales_daily_summary غير متوفر" />;
+  if (!rows.length) return <Empty text="لا توجد بيانات في الفترة المحددة" />;
+  return (
+    <div className="space-y-2">
+      {rows.map((row) => (
+        <div key={row.branch} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div className="font-black text-slate-900">{row.branch}</div>
+            <div className="text-sm font-black text-teal-700">{formatMoney(row.netTotal)}</div>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-500 sm:grid-cols-4">
+            <span>{formatNumber(row.invoicesCount)} فاتورة</span>
+            <span>{formatMoney(row.avgInvoice)} متوسط</span>
+            <span>{formatNumber(row.uniqueCustomers)} عميل</span>
+            <span>{row.share.toFixed(1)}%</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function performanceBadge(index: number, total: number) {
+  if (index === 0) return { label: "ممتاز", className: "bg-emerald-50 text-emerald-700 border-emerald-200" };
+  if (index < Math.ceil(total / 2)) return { label: "جيد", className: "bg-blue-50 text-blue-700 border-blue-200" };
+  return { label: "يحتاج متابعة", className: "bg-amber-50 text-amber-700 border-amber-200" };
+}
+
+function DoctorsTable({ rows, available }: { rows: StaffSalesSummary[]; available: boolean }) {
   const sorted = [...rows].sort((a, b) => b.netTotal - a.netTotal).slice(0, 10);
-  if (!sorted.length) return <Empty text="لا توجد بيانات دكاترة في staff_sales_summary." />;
+  if (!available) return <Empty text="غير متاح - staff_sales_summary غير متوفر" />;
+  if (!sorted.length) return <Empty text="لا توجد بيانات في الفترة المحددة" />;
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[720px] text-sm">
-        <thead className="text-xs text-slate-400">
-          <tr className="border-b border-white/10">
-            <th className="p-2 text-right">#</th>
-            <th className="p-2 text-right">الدكتور</th>
-            <th className="p-2 text-right">الفرع</th>
-            <th className="p-2 text-right">المبيعات</th>
-            <th className="p-2 text-right">الفواتير</th>
-            <th className="p-2 text-right">متوسط الفاتورة</th>
-            <th className="p-2 text-right">عملاء</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((row, index) => (
-            <tr key={`${row.sellerName}-${row.branch}-${index}`} className="border-b border-white/5 text-slate-200">
-              <td className="p-2 font-black text-teal-300">{index + 1}</td>
-              <td className="p-2 font-bold text-white">{row.sellerName || "غير محدد"}</td>
-              <td className="p-2">{row.branch || "غير محدد"}</td>
-              <td className="p-2 text-teal-300">{formatMoney(row.netTotal)}</td>
-              <td className="p-2">{formatNumber(row.invoicesCount)}</td>
-              <td className="p-2">{formatMoney(row.avgInvoice)}</td>
-              <td className="p-2">{formatNumber(row.uniqueCustomers)}</td>
+    <CompactTable>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>الدكتور</th>
+          <th>الفرع</th>
+          <th>المبيعات</th>
+          <th>الفواتير</th>
+          <th>المتوسط</th>
+          <th>عملاء</th>
+          <th>الأداء</th>
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map((row, index) => {
+          const badge = performanceBadge(index, sorted.length);
+          return (
+            <tr key={`${row.sellerName}-${row.branch}-${index}`}>
+              <td className="font-black text-teal-700">{index + 1}</td>
+              <td className="font-black text-slate-950">{row.sellerName || "غير محدد"}</td>
+              <td>{row.branch || "غير محدد"}</td>
+              <td className="font-bold text-teal-700">{formatMoney(row.netTotal)}</td>
+              <td>{formatNumber(row.invoicesCount)}</td>
+              <td>{formatMoney(row.avgInvoice)}</td>
+              <td>{formatNumber(row.uniqueCustomers)}</td>
+              <td><span className={cx("rounded-full border px-2 py-1 text-[11px] font-black", badge.className)}>{badge.label}</span></td>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          );
+        })}
+      </tbody>
+    </CompactTable>
   );
 }
 
-function DeliveryTable({ rows }: { rows: DeliveryPerformanceSummary[] }) {
+function DeliveryTable({ rows, available }: { rows: DeliveryPerformanceSummary[]; available: boolean }) {
   const sorted = [...rows].sort((a, b) => b.deliverySalesTotal - a.deliverySalesTotal).slice(0, 10);
-  if (!sorted.length) return <Empty text="لا توجد بيانات دليفري في delivery_performance_summary." />;
+  if (!available) return <Empty text="غير متاح - delivery_performance_summary غير متوفر" />;
+  if (!sorted.length) return <Empty text="لا توجد بيانات في الفترة المحددة" />;
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[720px] text-sm">
-        <thead className="text-xs text-slate-400">
-          <tr className="border-b border-white/10">
-            <th className="p-2 text-right">#</th>
-            <th className="p-2 text-right">الدليفري</th>
-            <th className="p-2 text-right">الفرع</th>
-            <th className="p-2 text-right">عدد التوصيلات</th>
-            <th className="p-2 text-right">مبيعات التوصيل</th>
-            <th className="p-2 text-right">كاش الدليفري</th>
-            <th className="p-2 text-right">رسوم إضافية</th>
+    <CompactTable>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>الدليفري</th>
+          <th>الفرع</th>
+          <th>التوصيلات</th>
+          <th>المبيعات</th>
+          <th>الكاش</th>
+          <th>رسوم</th>
+          <th>الالتزام</th>
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map((row, index) => (
+          <tr key={`${row.deliveryStaff}-${row.branch}-${index}`}>
+            <td className="font-black text-teal-700">{index + 1}</td>
+            <td className="font-black text-slate-950">{row.deliveryStaff || "غير محدد"}</td>
+            <td>{row.branch || "غير محدد"}</td>
+            <td>{formatNumber(row.deliveriesCount)}</td>
+            <td className="font-bold text-teal-700">{formatMoney(row.deliverySalesTotal)}</td>
+            <td>{formatMoney(row.courierCashTotal)}</td>
+            <td>{formatMoney(row.extraFeesTotal)}</td>
+            <td><span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-black text-slate-500">غير متاح</span></td>
           </tr>
-        </thead>
-        <tbody>
-          {sorted.map((row, index) => (
-            <tr key={`${row.deliveryStaff}-${row.branch}-${index}`} className="border-b border-white/5 text-slate-200">
-              <td className="p-2 font-black text-teal-300">{index + 1}</td>
-              <td className="p-2 font-bold text-white">{row.deliveryStaff || "غير محدد"}</td>
-              <td className="p-2">{row.branch || "غير محدد"}</td>
-              <td className="p-2">{formatNumber(row.deliveriesCount)}</td>
-              <td className="p-2 text-teal-300">{formatMoney(row.deliverySalesTotal)}</td>
-              <td className="p-2">{formatMoney(row.courierCashTotal)}</td>
-              <td className="p-2">{formatMoney(row.extraFeesTotal)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+        ))}
+      </tbody>
+    </CompactTable>
+  );
+}
+
+function FollowupPerformance({ totals, available }: { totals: ReturnType<typeof sumFollowups>; available: boolean }) {
+  if (!available) return <Empty text="غير متاح - followup_performance_summary غير متوفر" />;
+  const completionRate = totals.assignedCount ? (totals.completedCount / totals.assignedCount) * 100 : null;
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <MiniStat label="المسندة" value={formatNumber(totals.assignedCount)} />
+      <MiniStat label="المكتملة" value={formatNumber(totals.completedCount)} />
+      <MiniStat label="نسبة الإنجاز" value={completionRate === null ? "غير متاح" : `${completionRate.toFixed(1)}%`} />
+      <MiniStat label="المتأخرة" value={formatNumber(totals.overdueCount)} tone="danger" />
+      <MiniStat label="لم يرد" value={formatNumber(totals.noAnswerCount)} />
+      <MiniStat label="مؤجل" value={formatNumber(totals.postponedCount)} />
+      <MiniStat label="يحتاج مدير" value={formatNumber(totals.needsManagerCount)} tone="danger" />
+      <div className="rounded-2xl border border-teal-200 bg-teal-50 p-3 text-sm text-teal-800">
+        شراء بعد المتابعة: <b>{formatMoney(totals.purchaseAfterFollowupAmount)}</b>
+      </div>
     </div>
   );
 }
 
-function NotificationsList({ rows }: { rows: DashboardNotification[] }) {
+function DataHealthPanel({ summary }: { summary: DashboardSummary | null }) {
+  const health = summary?.dataHealth;
+  if (!health || health.error) return <Empty text={health?.error ? `غير متاح حاليًا: ${health.error}` : "غير متاح حاليًا"} />;
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <MiniStat label="بدون كود عميل" value={displayCount(health.invoicesWithoutCustomerCode)} tone={health.invoicesWithoutCustomerCode ? "danger" : "teal"} />
+      <MiniStat label="بدون هاتف" value={displayCount(health.invoicesWithoutCustomerPhone)} tone={health.invoicesWithoutCustomerPhone ? "danger" : "teal"} />
+      <MiniStat label="بدون دكتور" value={displayCount(health.invoicesWithoutSellerName)} tone={health.invoicesWithoutSellerName ? "danger" : "teal"} />
+      <MiniStat label="بدون فرع" value={displayCount(health.invoicesWithoutBranch)} tone={health.invoicesWithoutBranch ? "danger" : "teal"} />
+      <InfoLine label="آخر تاريخ فاتورة" value={health.lastInvoiceDate ? displayDate(health.lastInvoiceDate) : "غير محدد"} />
+      <InfoLine label="آخر دفعة استيراد" value={health.latestImportBatch || "غير محدد"} />
+    </div>
+  );
+}
+
+function sourceStatus(ok: boolean | undefined, hasRows?: boolean) {
+  if (!ok) return { label: "غير متاح", className: "bg-red-50 text-red-700 border-red-200", icon: AlertTriangle };
+  if (hasRows === false) return { label: "لا توجد بيانات", className: "bg-amber-50 text-amber-700 border-amber-200", icon: AlertTriangle };
+  return { label: "متصل", className: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: CheckCircle2 };
+}
+
+function SourceHealthPanel({ summary }: { summary: DashboardSummary | null }) {
+  const health = summary?.sourceHealth;
+  const rows = [
+    ["get_dashboard_kpis", health?.rpcAvailable, summary?.kpis ? true : false],
+    ["sales_daily_summary", health?.salesSummaryAvailable, Boolean(summary?.dailySales.length)],
+    ["staff_sales_summary", health?.staffSummaryAvailable, Boolean(summary?.staffSales.length)],
+    ["delivery_performance_summary", health?.deliverySummaryAvailable, Boolean(summary?.deliveryPerformance.length)],
+    ["followup_performance_summary", health?.followupSummaryAvailable, Boolean(summary?.followupPerformance.length)],
+    ["notifications", health?.notificationsAvailable, Boolean(summary?.notifications.length)],
+    ["activity_log", health?.activityLogAvailable, Boolean(summary?.activity.length)],
+  ] as const;
+  return (
+    <details className="rounded-2xl border border-slate-200 bg-slate-50 p-3" open={false}>
+      <summary className="cursor-pointer text-sm font-black text-slate-800">عرض حالة مصادر البيانات</summary>
+      <div className="mt-3 space-y-2">
+        {rows.map(([label, ok, hasRows]) => {
+          const status = sourceStatus(ok, hasRows);
+          const Icon = status.icon;
+          return (
+            <div key={label} className="flex items-center justify-between rounded-xl bg-white px-3 py-2 text-sm">
+              <span className="font-bold text-slate-700">{label}</span>
+              <span className={cx("inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-black", status.className)}>
+                <Icon className="h-3.5 w-3.5" />
+                {status.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </details>
+  );
+}
+
+function NotificationsList({ rows, available }: { rows: DashboardNotification[]; available: boolean }) {
+  if (!available) return <Empty text="غير متاح - notifications غير متوفر" />;
   if (!rows.length) return <Empty text="لا توجد تنبيهات متاحة حتى الآن" />;
   return (
-    <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
+    <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
       {rows.map((row) => {
         const content = (
-          <div className={cx("rounded-2xl border p-3", priorityClass(row.priority))}>
+          <div className={cx("rounded-2xl border p-3 shadow-sm", priorityClass(row.priority))}>
             <div className="text-sm font-black">{row.title || row.message || "تنبيه"}</div>
             {row.title && row.message && <div className="mt-1 text-xs opacity-85">{row.message}</div>}
             <div className="mt-2 text-[11px] opacity-70">{row.priority || "غير محدد"} · {displayDate(row.createdAt)}</div>
@@ -507,23 +722,27 @@ function NotificationsList({ rows }: { rows: DashboardNotification[] }) {
   );
 }
 
-function ActivityList({ rows }: { rows: DashboardActivity[] }) {
+function ActivityList({ rows, available }: { rows: DashboardActivity[]; available: boolean }) {
+  if (!available) return <Empty text="غير متاح - activity_log غير متوفر" />;
   if (!rows.length) return <Empty text="لا توجد أنشطة مسجلة" />;
   return (
-    <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
+    <div className="max-h-[320px] space-y-3 overflow-y-auto pr-1">
       {rows.map((row) => (
-        <div key={row.id} className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="truncate text-sm font-black text-white">{row.action || "نشاط"}</div>
-              <div className="mt-1 line-clamp-2 text-xs text-slate-300">{row.description || "غير متاح"}</div>
+        <div key={row.id} className="relative rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+          <span className="absolute right-3 top-4 h-2.5 w-2.5 rounded-full bg-teal-500" />
+          <div className="pr-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-black text-slate-950">{row.action || "نشاط"}</div>
+                <div className="mt-1 line-clamp-2 text-xs text-slate-600">{row.description || "غير متاح"}</div>
+              </div>
+              <div className="shrink-0 text-[11px] font-bold text-slate-400">{displayDate(row.createdAt)}</div>
             </div>
-            <div className="shrink-0 text-[11px] text-slate-500">{displayDate(row.createdAt)}</div>
-          </div>
-          <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-400">
-            <span>{row.userName || "غير محدد"}</span>
-            <span>{row.branch || "غير محدد"}</span>
-            <span>{row.targetType || "غير محدد"}</span>
+            <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-bold text-slate-500">
+              <span>{row.userName || "غير محدد"}</span>
+              <span>{row.branch || "غير محدد"}</span>
+              <span>{row.targetType || "غير محدد"}</span>
+            </div>
           </div>
         </div>
       ))}
@@ -531,16 +750,33 @@ function ActivityList({ rows }: { rows: DashboardActivity[] }) {
   );
 }
 
+function CompactTable({ children }: { children: ReactNode }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="dawaa-table min-w-[820px]">{children}</table>
+    </div>
+  );
+}
+
 function MiniStat({ label, value, tone = "teal" }: { label: string; value: ReactNode; tone?: "teal" | "danger" }) {
-  const color = tone === "danger" ? "text-rose-200 bg-rose-500/10 border-rose-500/20" : "text-teal-100 bg-teal-500/10 border-teal-500/20";
+  const color = tone === "danger" ? "border-red-200 bg-red-50 text-red-700" : "border-teal-200 bg-teal-50 text-teal-800";
   return (
     <div className={cx("rounded-2xl border p-3", color)}>
-      <div className="text-xs opacity-80">{label}</div>
-      <div className="mt-1 text-xl font-black">{value}</div>
+      <div className="text-xs font-bold opacity-75">{label}</div>
+      <div className="mt-1 break-words text-lg font-black">{value}</div>
+    </div>
+  );
+}
+
+function InfoLine({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="col-span-2 rounded-2xl border border-slate-200 bg-white p-3">
+      <div className="text-xs font-bold text-slate-500">{label}</div>
+      <div className="mt-1 break-words text-sm font-black text-slate-950">{value}</div>
     </div>
   );
 }
 
 function Empty({ text }: { text: string }) {
-  return <div className="rounded-2xl border border-dashed border-slate-600 p-6 text-center text-sm text-slate-400">{text}</div>;
+  return <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center text-sm font-semibold text-slate-500">{text}</div>;
 }

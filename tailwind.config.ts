@@ -14,7 +14,7 @@ export default {
       fontFamily: {
         cairo: ["Cairo", "sans-serif"],
         tajawal: ["Tajawal", "sans-serif"],
-        sans: ["Cairo", "sans-serif"],
+        sans: ["Tajawal", "Cairo", "IBM Plex Sans Arabic", "Noto Sans Arabic", "system-ui", "sans-serif"],
       },
       colors: {
         // Brand Colors from Logo

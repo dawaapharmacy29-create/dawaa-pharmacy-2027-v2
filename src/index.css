@@ -4,34 +4,34 @@
 
 @layer base {
   :root {
-    --background: 215 40% 8%;
-    --foreground: 210 20% 95%;
-    --card: 220 35% 14%;
-    --card-foreground: 210 20% 95%;
-    --popover: 220 35% 12%;
-    --popover-foreground: 210 20% 95%;
-    --primary: 171 100% 39%;
-    --primary-foreground: 215 40% 8%;
-    --secondary: 220 30% 20%;
-    --secondary-foreground: 210 20% 90%;
-    --muted: 220 25% 18%;
-    --muted-foreground: 215 15% 55%;
-    --accent: 171 100% 39%;
-    --accent-foreground: 215 40% 8%;
+    --background: 210 33% 98%;
+    --foreground: 222 47% 13%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 13%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 13%;
+    --primary: 176 100% 34%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 13%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 42%;
+    --accent: 176 100% 34%;
+    --accent-foreground: 0 0% 100%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
-    --border: 220 25% 22%;
-    --input: 220 25% 18%;
-    --ring: 171 100% 39%;
+    --border: 214 32% 88%;
+    --input: 0 0% 100%;
+    --ring: 176 100% 34%;
     --radius: 0.75rem;
-    --sidebar-background: 215 45% 11%;
-    --sidebar-foreground: 210 20% 85%;
-    --sidebar-primary: 171 100% 39%;
-    --sidebar-primary-foreground: 215 40% 8%;
-    --sidebar-accent: 220 30% 18%;
-    --sidebar-accent-foreground: 210 20% 90%;
-    --sidebar-border: 220 25% 20%;
-    --sidebar-ring: 171 100% 39%;
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 222 47% 18%;
+    --sidebar-primary: 176 100% 34%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 40% 96%;
+    --sidebar-accent-foreground: 222 47% 13%;
+    --sidebar-border: 214 32% 88%;
+    --sidebar-ring: 176 100% 34%;
   }
 }
 
@@ -42,13 +42,14 @@
 
   html {
     direction: rtl;
-    font-family: 'Cairo', sans-serif;
+    color-scheme: light;
+    font-family: "Tajawal", "Cairo", "IBM Plex Sans Arabic", "Noto Sans Arabic", system-ui, sans-serif;
   }
 
   body {
-    @apply bg-navy-900;
-    color: hsl(var(--foreground));
-    font-family: 'Cairo', sans-serif;
+    background: #F7F9FB;
+    color: #0F172A;
+    font-family: "Tajawal", "Cairo", "IBM Plex Sans Arabic", "Noto Sans Arabic", system-ui, sans-serif;
     direction: rtl;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -60,14 +61,14 @@
     height: 6px;
   }
   ::-webkit-scrollbar-track {
-    background: #0F1923;
+    background: #F1F5F9;
   }
   ::-webkit-scrollbar-thumb {
-    background: #2d4063;
+    background: #CBD5E1;
     border-radius: 3px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #00C9A7;
+    background: #00AFA5;
   }
 }
 
@@ -85,39 +86,39 @@
   }
 
   .stat-card {
-    @apply bg-gradient-to-br from-[#243558] to-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5 transition-all duration-200 hover:border-teal-500/30;
+    @apply rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-all duration-200 hover:border-teal-200 hover:shadow-md;
   }
 
   .page-title {
-    @apply text-2xl font-bold text-white tracking-tight;
+    @apply text-2xl font-bold text-slate-950 tracking-tight;
   }
 
   .section-title {
-    @apply text-lg font-semibold text-slate-200;
+    @apply text-lg font-semibold text-slate-900;
   }
 
   .badge-success {
-    @apply bg-teal-500/15 text-teal-400 border border-teal-500/25 text-xs font-semibold px-2.5 py-0.5 rounded-full;
+    @apply bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold px-2.5 py-0.5 rounded-full;
   }
 
   .badge-warning {
-    @apply bg-amber-500/15 text-amber-400 border border-amber-500/25 text-xs font-semibold px-2.5 py-0.5 rounded-full;
+    @apply bg-amber-50 text-amber-700 border border-amber-200 text-xs font-semibold px-2.5 py-0.5 rounded-full;
   }
 
   .badge-danger {
-    @apply bg-red-500/15 text-red-400 border border-red-500/25 text-xs font-semibold px-2.5 py-0.5 rounded-full;
+    @apply bg-red-50 text-red-700 border border-red-200 text-xs font-semibold px-2.5 py-0.5 rounded-full;
   }
 
   .badge-info {
-    @apply bg-blue-500/15 text-blue-400 border border-blue-500/25 text-xs font-semibold px-2.5 py-0.5 rounded-full;
+    @apply bg-blue-50 text-blue-700 border border-blue-200 text-xs font-semibold px-2.5 py-0.5 rounded-full;
   }
 
   .badge-purple {
-    @apply bg-purple-500/15 text-purple-400 border border-purple-500/25 text-xs font-semibold px-2.5 py-0.5 rounded-full;
+    @apply bg-violet-50 text-violet-700 border border-violet-200 text-xs font-semibold px-2.5 py-0.5 rounded-full;
   }
 
   .input-dark {
-    @apply bg-[#1B2B4B] border border-[#2d4063] rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-teal-500/50 focus:ring-1 focus:ring-teal-500/30 transition-all w-full;
+    @apply w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-950 placeholder-slate-400 shadow-sm transition-all focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-100;
   }
 
   .theme-option {
@@ -145,23 +146,23 @@
   }
 
   .btn-primary {
-    @apply bg-teal-500 hover:bg-teal-600 text-navy-900 font-bold px-5 py-2.5 rounded-xl transition-all duration-200 text-sm shadow-lg shadow-teal-500/20 hover:shadow-teal-500/30;
+    @apply rounded-xl bg-teal-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-all duration-200 hover:bg-teal-700 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-teal-200;
   }
 
   .btn-secondary {
-    @apply bg-[#243558] hover:bg-[#2d4063] text-slate-200 border border-[#2d4063] hover:border-teal-500/30 font-medium px-5 py-2.5 rounded-xl transition-all duration-200 text-sm;
+    @apply rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-all duration-200 hover:border-teal-200 hover:bg-teal-50 focus:outline-none focus:ring-2 focus:ring-teal-100;
   }
 
   .btn-danger {
-    @apply bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 hover:border-red-500/40 font-medium px-5 py-2.5 rounded-xl transition-all duration-200 text-sm;
+    @apply rounded-xl border border-red-200 bg-red-50 px-5 py-2.5 text-sm font-medium text-red-700 transition-all duration-200 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-100;
   }
 
   .modal-backdrop {
-    @apply fixed inset-0 bg-black/60 z-[80] flex items-start justify-center p-4 overflow-y-auto;
+    @apply fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-slate-950/35 p-4;
   }
 
   .modal-panel {
-    @apply bg-[#1B2B4B] border border-[#2d4063] rounded-2xl w-full my-6 animate-fade-in max-h-[calc(100vh-3rem)] overflow-y-auto shadow-2xl shadow-black/30;
+    @apply my-6 max-h-[calc(100vh-3rem)] w-full animate-fade-in overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-900/10;
   }
 
   .data-table {
@@ -169,15 +170,15 @@
   }
 
   .data-table th {
-    @apply text-right text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 py-3 bg-[#1B2B4B] border-b border-[#2d4063];
+    @apply border-b border-slate-200 bg-slate-50 px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500;
   }
 
   .data-table td {
-    @apply text-right text-sm text-slate-300 px-4 py-3 border-b border-[#2d4063]/50;
+    @apply border-b border-slate-100 px-4 py-3 text-right text-sm text-slate-700;
   }
 
   .data-table tr:hover td {
-    background-color: rgba(255, 255, 255, 0.03);
+    background-color: #F8FAFC;
   }
 
   /* RTL fixes */
@@ -191,7 +192,7 @@
   }
 
   .recharts-text {
-    font-family: 'Cairo', sans-serif !important;
+    font-family: "Tajawal", "Cairo", "IBM Plex Sans Arabic", "Noto Sans Arabic", system-ui, sans-serif !important;
   }
 }
 
@@ -217,14 +218,14 @@
 
 /* Glass morphism */
 .glass {
-  background: rgba(36, 53, 88, 0.6);
+  background: rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
 }
 
 /* Progress bars */
 .progress-bar {
-  @apply h-2 rounded-full bg-[#2d4063] overflow-hidden;
+  @apply h-2 overflow-hidden rounded-full bg-slate-200;
 }
 
 .progress-fill {
@@ -731,6 +732,178 @@ html.light-mode .crm-timeline-item {
   border-color: #d7e9ee !important;
 }
 
+/* Executive Dashboard 2027 light command center */
+.dawaa-dashboard-light {
+  color: #0f172a;
+}
+
+.dawaa-hero,
+.dawaa-panel,
+.dawaa-card {
+  border: 1px solid #e5eaf0;
+  background: #ffffff;
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.06);
+}
+
+.dawaa-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-radius: 1.5rem;
+  padding: 1rem;
+}
+
+.dawaa-panel,
+.dawaa-card {
+  border-radius: 1.25rem;
+  padding: 1rem;
+}
+
+.dawaa-brand-chip,
+.dawaa-source-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid #bfe9e3;
+  background: #e6f7f6;
+  padding: .35rem .7rem;
+  font-size: .74rem;
+  font-weight: 900;
+  color: #007d76;
+}
+
+.dawaa-source-badge {
+  border-color: #dbe6f0;
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.dawaa-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: .5rem;
+}
+
+.dawaa-input {
+  height: 2.6rem;
+  border-radius: .9rem;
+  border: 1px solid #dbe3ec;
+  background: #ffffff;
+  padding: 0 .85rem;
+  color: #0f172a;
+  font-size: .875rem;
+  font-weight: 700;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+}
+
+.dawaa-input:focus {
+  outline: 2px solid rgba(0, 175, 165, .18);
+  border-color: #00afa5;
+}
+
+.dawaa-button-primary {
+  display: inline-flex;
+  height: 2.6rem;
+  align-items: center;
+  justify-content: center;
+  gap: .45rem;
+  border-radius: .9rem;
+  background: #00afa5;
+  padding: 0 1rem;
+  color: #ffffff;
+  font-size: .875rem;
+  font-weight: 900;
+  box-shadow: 0 12px 24px rgba(0, 175, 165, .16);
+  transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+}
+
+.dawaa-button-primary:hover {
+  transform: translateY(-1px);
+  background: #008c84;
+  box-shadow: 0 16px 28px rgba(0, 140, 132, .18);
+}
+
+.dawaa-button-primary:disabled {
+  cursor: not-allowed;
+  opacity: .65;
+  transform: none;
+}
+
+.dawaa-loading,
+.dawaa-error-details {
+  border-radius: 1.25rem;
+  border: 1px solid #e5eaf0;
+  background: #ffffff;
+  padding: 1rem;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.05);
+}
+
+.dawaa-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  color: #475569;
+  font-weight: 800;
+}
+
+.dawaa-error-details {
+  background: #fff7e6;
+  color: #8a5a00;
+}
+
+.dawaa-error-details summary {
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.dawaa-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: .875rem;
+}
+
+.dawaa-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: .75rem;
+  font-weight: 900;
+}
+
+.dawaa-table th,
+.dawaa-table td {
+  border-bottom: 1px solid #eef2f6;
+  padding: .75rem .65rem;
+  text-align: right;
+  color: #475569;
+}
+
+.dawaa-table tbody tr:hover td {
+  background: #f8fafc;
+}
+
+@media (max-width: 900px) {
+  .dawaa-hero {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .dawaa-controls {
+    justify-content: stretch;
+  }
+
+  .dawaa-controls > * {
+    flex: 1 1 150px;
+  }
+}
+
 /* Celebration effect */
 .dawaa-confetti-piece {
   position: fixed;
@@ -748,4 +921,3 @@ html.light-mode .crm-timeline-item {
   80% { opacity: 1; }
   100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
 }
-
