@@ -85,6 +85,19 @@ export interface CustomerDetails {
   lastFollowupReport: string | null;
   avgMonthlyVisits: number | null;
   currentMonthVisits: number | null;
+  customerNotes: string | null;
+  whatsappNotes: string | null;
+}
+
+interface CustomerProfile {
+  id: string;
+  customer_code?: string | null;
+  customer_phone?: string | null;
+  phone?: string | null;
+  notes?: string | null;
+  whatsapp_notes?: string | null;
+  customer_notes?: string | null;
+  branch?: string | null;
 }
 
 function normalizeLimit(limit?: number) {
@@ -376,6 +389,35 @@ export async function getCustomerStats(): Promise<CustomerStats> {
   };
 }
 
+async function getCustomerProfile(customer: CustomerMetric): Promise<CustomerProfile | null> {
+  const customerId = customer.customer_id && isUuidLike(customer.customer_id) ? customer.customer_id : null;
+  const customerCode = customer.customer_code ? customer.customer_code : null;
+  const customerPhone = customer.customer_phone ? customer.customer_phone : null;
+
+  if (!customerId && !customerCode && !customerPhone) return null;
+
+  let query = supabase
+    .from("customers")
+    .select("id,customer_code,customer_phone,phone,notes,whatsapp_notes,customer_notes,branch")
+    .limit(1);
+
+  if (customerId) {
+    query = query.eq("id", customerId);
+  } else if (customerCode) {
+    query = query.eq("customer_code", customerCode);
+  } else {
+    query = query.or(`customer_phone.eq.${customerPhone},phone.eq.${customerPhone}`);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    console.warn("[getCustomerProfile] Supabase Error:", error.message);
+    return null;
+  }
+
+  return (data?.[0] ?? null) as CustomerProfile | null;
+}
+
 function customerInvoiceOrClauses(customer: CustomerMetric) {
   const clauses = [
     customer.customer_id && isUuidLike(customer.customer_id) ? `customer_id.eq.${customer.customer_id}` : "",
@@ -417,7 +459,7 @@ export async function getCustomerDetails(customer: CustomerMetric, invoiceLimit 
       .limit(20)
     : Promise.resolve({ data: [], error: null } as any);
 
-  const [invoiceResult, followupResult] = await Promise.all([invoiceQuery, followupQuery]);
+  const [profile, invoiceResult, followupResult] = await Promise.all([getCustomerProfile(customer), invoiceQuery, followupQuery]);
   if (invoiceResult.error) throw new Error(`sales_invoices: ${invoiceResult.error.message}`);
   if (followupResult.error) throw new Error(`daily_followups: ${followupResult.error.message}`);
 
@@ -463,5 +505,7 @@ export async function getCustomerDetails(customer: CustomerMetric, invoiceLimit 
     lastFollowupReport: lastFollowup?.followup_result || lastFollowup?.notes || null,
     avgMonthlyVisits: null,
     currentMonthVisits: null,
+    customerNotes: profile?.customer_notes || profile?.notes || null,
+    whatsappNotes: profile?.whatsapp_notes || null,
   };
 }

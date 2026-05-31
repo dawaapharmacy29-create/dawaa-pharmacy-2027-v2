@@ -446,6 +446,14 @@ function CustomerDetailsModal({ customer, onClose }: { customer: CustomerMetric;
           <Metric label="التصنيف والحالة" value={`${customer.segment} · ${customer.customer_status}`} />
         </div>
 
+        {(details?.customerNotes || details?.whatsappNotes) && (
+          <div className="mx-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-relaxed text-slate-700">
+            <div className="mb-2 font-black text-slate-950">ملاحظات العميل</div>
+            {details?.customerNotes ? <div className="whitespace-pre-line">{details.customerNotes}</div> : null}
+            {details?.whatsappNotes ? <div className="mt-2 whitespace-pre-line text-slate-600">{details.whatsappNotes}</div> : null}
+          </div>
+        )}
+
         {error && <div className="mx-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div>}
 
         <div className="grid gap-4 p-5 lg:grid-cols-2">
