@@ -183,6 +183,9 @@ export default function ExecutiveDashboard2027() {
   const kpis = summary?.kpis || null;
   const sourceHealth = summary?.sourceHealth;
   const dataHealth = summary?.dataHealth;
+  const customerIntel = summary?.customerIntelligence;
+  const rpcError = errorFor(errors, "get_dashboard_kpis");
+  const customerIntelError = customerIntel?.error || errorFor(errors, "customer_metrics_summary");
   const hasInvoiceRows = numberValue(kpis?.invoicesCount) !== 0;
   const urgentNotifications = useMemo(
     () => (summary?.notifications || []).filter((item) => /urgent|high|عاجل|مرتفع/i.test(String(item.priority || ""))).length,
@@ -229,16 +232,18 @@ export default function ExecutiveDashboard2027() {
       label: "متابعات متأخرة",
       value: displayCount(kpis?.overdueFollowups ?? followupTotals.overdueCount),
       recommendation: "راجع الحالات المتأخرة قبل نهاية الوردية",
-      reason: errorFor(errors, "get_dashboard_kpis") || errorFor(errors, "followup_performance_summary"),
+      source: "followup_performance_summary",
+      reason: errorFor(errors, "followup_performance_summary") ? "راجع صحة المصدر" : null,
       route: "/customer-service",
       tone: "danger" as const,
       icon: AlertTriangle,
     },
     {
       label: "مهام مستحقة اليوم",
-      value: hasValue(kpis?.tasksDueToday) ? displayCount(kpis?.tasksDueToday) : "غير متاح حاليًا",
+      value: hasValue(kpis?.dueFollowups) ? displayCount(kpis?.dueFollowups) : hasValue(kpis?.tasksDueToday) ? displayCount(kpis?.tasksDueToday) : "غير متاح حاليًا",
       recommendation: "وزع المهام حسب الأولوية",
-      reason: hasValue(kpis?.tasksDueToday) ? null : "غير متوفر في get_dashboard_kpis حاليًا",
+      source: "get_dashboard_kpis",
+      reason: rpcError || (!hasValue(kpis?.dueFollowups) && !hasValue(kpis?.tasksDueToday)) ? "راجع صحة المصدر" : null,
       route: "/operations-center",
       tone: "warning" as const,
       icon: ClipboardList,
@@ -247,7 +252,8 @@ export default function ExecutiveDashboard2027() {
       label: "فواتير تحتاج ربط عميل",
       value: displayCount(kpis?.invoicesWithoutCustomerCode ?? dataHealth?.invoicesWithoutCustomerCode),
       recommendation: "اربط الفواتير قبل تحليل العملاء",
-      reason: dataHealth?.error || null,
+      source: "sales_invoices health",
+      reason: dataHealth?.error ? "راجع صحة المصدر" : null,
       route: "/invoices",
       tone: "warning" as const,
       icon: Users,
@@ -256,7 +262,8 @@ export default function ExecutiveDashboard2027() {
       label: "فواتير بدون دكتور",
       value: displayCount(kpis?.invoicesWithoutSellerName ?? dataHealth?.invoicesWithoutSellerName),
       recommendation: "أكمل اسم الدكتور لتحسين تقييم الفريق",
-      reason: dataHealth?.error || null,
+      source: "sales_invoices health",
+      reason: dataHealth?.error ? "راجع صحة المصدر" : null,
       route: "/invoices",
       tone: "warning" as const,
       icon: Stethoscope,
@@ -265,7 +272,8 @@ export default function ExecutiveDashboard2027() {
       label: "فواتير بدون فرع",
       value: displayCount(kpis?.invoicesWithoutBranch ?? dataHealth?.invoicesWithoutBranch),
       recommendation: "راجع بيانات الاستيراد والفرع",
-      reason: dataHealth?.error || null,
+      source: "sales_invoices health",
+      reason: dataHealth?.error ? "راجع صحة المصدر" : null,
       route: "/invoices",
       tone: "warning" as const,
       icon: Database,
@@ -274,25 +282,28 @@ export default function ExecutiveDashboard2027() {
       label: "تنبيهات عاجلة",
       value: displayCount(urgentNotifications),
       recommendation: "ابدأ بالتنبيهات الأعلى أولوية",
-      reason: errorFor(errors, "notifications"),
+      source: "notifications",
+      reason: errorFor(errors, "notifications") ? "راجع صحة المصدر" : null,
       route: "/notifications",
       tone: urgentNotifications ? "danger" as const : "info" as const,
       icon: BellRing,
     },
     {
       label: "عملاء مهمين يحتاجون متابعة",
-      value: "غير متاح حاليًا",
-      recommendation: "سيتم ربطها لاحقًا من customer_metrics_summary",
-      reason: "مصدر العملاء لم يدخل هذه المرحلة",
+      value: displayCount(customerIntel?.importantNeedFollowup),
+      recommendation: "ابدأ بالعملاء المهمين المهددين أو المتوقفين",
+      source: "customer_metrics_summary",
+      reason: customerIntelError ? "راجع صحة المصدر" : null,
       route: "/customers",
       tone: "info" as const,
       icon: HeadphonesIcon,
     },
     {
       label: "شكاوى تحتاج مدير",
-      value: "غير متاح حاليًا",
-      recommendation: "تحتاج مصدر شكاوى صريح قبل العرض",
-      reason: "لا يوجد عداد شكاوى موثوق في مصادر هذه المرحلة",
+      value: displayCount(customerIntel?.needsManagerFollowups),
+      recommendation: "متابعة مدير مطلوبة قبل نهاية اليوم",
+      source: "daily_followups.needs_manager",
+      reason: customerIntelError ? "راجع صحة المصدر" : null,
       route: "/customer-service",
       tone: "danger" as const,
       icon: SearchX,
@@ -412,9 +423,12 @@ export default function ExecutiveDashboard2027() {
         </Panel>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-3">
+      <section className="grid gap-4 xl:grid-cols-4">
         <Panel title="أداء المتابعات" source="followup_performance_summary.followup_date">
           <FollowupPerformance totals={followupTotals} available={Boolean(sourceHealth?.followupSummaryAvailable)} />
+        </Panel>
+        <Panel title="ذكاء العملاء والمتابعات" source="customer_metrics_summary + daily_followups">
+          <CustomerIntelligencePanel summary={summary} />
         </Panel>
         <Panel title="صحة البيانات" source="lightweight sales_invoices counts">
           <DataHealthPanel summary={summary} />
@@ -479,6 +493,7 @@ function ActionCard({
   value,
   recommendation,
   reason,
+  source,
   route,
   tone,
   icon: Icon,
@@ -487,6 +502,7 @@ function ActionCard({
   value: ReactNode;
   recommendation: string;
   reason?: string | null;
+  source?: string;
   route?: string;
   tone: "danger" | "warning" | "info";
   icon: ElementType;
@@ -509,6 +525,7 @@ function ActionCard({
       </div>
       <div className="mt-3 text-2xl font-black text-slate-950">{reason ? "غير متاح حاليًا" : value}</div>
       <div className="mt-2 line-clamp-2 text-xs font-semibold opacity-80">{reason || recommendation}</div>
+      {source && <div className="mt-2 text-[11px] font-black opacity-70">المصدر: {source}</div>}
     </div>
   );
   return route ? <Link to={route}>{content}</Link> : content;
@@ -649,6 +666,21 @@ function FollowupPerformance({ totals, available }: { totals: ReturnType<typeof 
   );
 }
 
+function CustomerIntelligencePanel({ summary }: { summary: DashboardSummary | null }) {
+  const intel = summary?.customerIntelligence;
+  if (!intel || intel.error) return <Empty text={intel?.error ? "غير متاح حاليًا - راجع صحة المصدر" : "غير متاح حاليًا"} />;
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <MiniStat label="مهمين يحتاجون متابعة" value={displayCount(intel.importantNeedFollowup)} tone={intel.importantNeedFollowup ? "danger" : "teal"} />
+      <MiniStat label="عملاء متوقفين" value={displayCount(intel.stoppedCustomers)} tone={intel.stoppedCustomers ? "danger" : "teal"} />
+      <MiniStat label="مهددين بالتوقف" value={displayCount(intel.atRiskCustomers)} tone={intel.atRiskCustomers ? "danger" : "teal"} />
+      <MiniStat label="بدون هاتف صحيح" value={displayCount(intel.customersWithoutValidPhone)} tone={intel.customersWithoutValidPhone ? "danger" : "teal"} />
+      <MiniStat label="بيانات غير مكتملة" value={displayCount(intel.incompleteCustomers)} tone={intel.incompleteCustomers ? "danger" : "teal"} />
+      <MiniStat label="متابعات تحتاج مدير" value={displayCount(intel.needsManagerFollowups)} tone={intel.needsManagerFollowups ? "danger" : "teal"} />
+    </div>
+  );
+}
+
 function DataHealthPanel({ summary }: { summary: DashboardSummary | null }) {
   const health = summary?.dataHealth;
   if (!health || health.error) return <Empty text={health?.error ? `غير متاح حاليًا: ${health.error}` : "غير متاح حاليًا"} />;
@@ -678,6 +710,7 @@ function SourceHealthPanel({ summary }: { summary: DashboardSummary | null }) {
     ["staff_sales_summary", health?.staffSummaryAvailable, Boolean(summary?.staffSales.length)],
     ["delivery_performance_summary", health?.deliverySummaryAvailable, Boolean(summary?.deliveryPerformance.length)],
     ["followup_performance_summary", health?.followupSummaryAvailable, Boolean(summary?.followupPerformance.length)],
+    ["customer_metrics_summary", health?.customerSummaryAvailable, summary?.customerIntelligence?.error ? false : true],
     ["notifications", health?.notificationsAvailable, Boolean(summary?.notifications.length)],
     ["activity_log", health?.activityLogAvailable, Boolean(summary?.activity.length)],
   ] as const;

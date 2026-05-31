@@ -37,7 +37,7 @@ import {
 } from "@/lib/api/customerServiceCommandCenter";
 import { buildCustomerServiceWhatsAppMessage } from "@/lib/whatsappTemplates";
 import { cleanEgyptianPhone, generateWhatsAppLink } from "@/lib/whatsapp";
-import { isValidEgyptPhone } from "@/lib/customerAnalyticsService";
+import { isValidEgyptPhone, getBestCustomerPhone } from "@/lib/customerAnalyticsService";
 import { normalizeBranchName } from "@/lib/branch";
 import { BRANCHES } from "@/lib/constants";
 import { logActivity } from "@/lib/activityLog";
@@ -90,7 +90,12 @@ function responsibleOf(row: FollowupRow) {
 }
 
 function phoneOf(row: FollowupRow) {
-  return row.customer_phone || row.phone || "";
+  const bestPhone = getBestCustomerPhone(
+    row,
+    row.customer_metrics,
+    null // customerDetails not available in row, would need enrichment
+  );
+  return bestPhone || "";
 }
 
 function segmentOf(row: FollowupRow) {
@@ -478,7 +483,7 @@ function FollowupCard({ row, active, onSelect, onResult, onPostpone, onQuickUpda
 }) {
   const phone = phoneOf(row);
   const cleanPhone = cleanEgyptianPhone(phone);
-  const hasValidPhone = isValidEgyptPhone(phone, row.customer_code);
+  const hasValidPhone = phone && isValidEgyptPhone(phone, row.customer_code);
   const activeFlags = getActiveCustomerFlags(row.customer_flags);
   const message = buildCustomerServiceWhatsAppMessage({
     customerName: row.customer_name || row.name,
@@ -488,7 +493,7 @@ function FollowupCard({ row, active, onSelect, onResult, onPostpone, onQuickUpda
     flags: activeFlags.map(f => f.label),
     purchaseFrequencyStatus: row.purchase_frequency_status ? (row.purchase_frequency_status === "stopped" ? "توقف عن الشراء" : row.purchase_frequency_status === "decreased" ? "انخفض الشراء" : row.purchase_frequency_status === "normal" ? "طبيعي" : row.purchase_frequency_status) : undefined,
   });
-  const wa = cleanPhone && hasValidPhone ? generateWhatsAppLink(cleanPhone, message) : "";
+  const wa = hasValidPhone && cleanPhone ? generateWhatsAppLink(cleanPhone, message) : "";
   return (
     <article className={`rounded-2xl border bg-white p-4 shadow-sm transition hover:shadow-md ${active ? "border-teal-300 ring-2 ring-teal-100" : "border-slate-200"}`} onClick={onSelect}>
       <div className="flex items-start justify-between gap-3">
@@ -496,7 +501,7 @@ function FollowupCard({ row, active, onSelect, onResult, onPostpone, onQuickUpda
           <div className="truncate text-base font-black text-slate-950">{row.customer_name || row.name || "عميل بدون اسم"}</div>
           <div className="mt-1 flex flex-wrap gap-2 text-xs font-bold text-slate-500">
             <span>كود: {row.customer_code || "بدون كود"}</span>
-            <span>هاتف: {phone || "لا يوجد"}</span>
+            <span>هاتف: {hasValidPhone ? phone : "لا يوجد رقم صحيح"}</span>
             <span>{normalizeBranchName(row.branch)}</span>
           </div>
         </div>
@@ -523,10 +528,10 @@ function FollowupCard({ row, active, onSelect, onResult, onPostpone, onQuickUpda
         {row.suggested_action || row.followup_reason || row.request_details || "تواصل مع العميل وسجل نتيجة المتابعة."}
       </div>
       <div className="mt-3 flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
-        <a href={wa || undefined} target="_blank" rel="noopener noreferrer" className={`btn-secondary inline-flex items-center gap-1 px-3 py-2 ${!wa ? "pointer-events-none opacity-50" : ""}`} title={wa ? "فتح واتساب" : "لا يوجد رقم هاتف"}>
+        <a href={wa || undefined} target="_blank" rel="noopener noreferrer" className={`btn-secondary inline-flex items-center gap-1 px-3 py-2 ${!wa ? "pointer-events-none opacity-50" : ""}`} title={wa ? "فتح واتساب" : "لا يوجد رقم هاتف صحيح"}>
           <MessageSquare size={14} /> واتساب
         </a>
-        {cleanPhone ? <a href={`tel:${cleanPhone}`} className="btn-secondary inline-flex items-center gap-1 px-3 py-2"><PhoneCall size={14} /> اتصال</a> : null}
+        {hasValidPhone && cleanPhone ? <a href={`tel:${cleanPhone}`} className="btn-secondary inline-flex items-center gap-1 px-3 py-2"><PhoneCall size={14} /> اتصال</a> : null}
         <button type="button" className="btn-secondary px-3 py-2" onClick={() => onQuickUpdate(row, { status: "تم", followup_status: "تم", contact_status: "تم التواصل", completed_at: new Date().toISOString() }, "تم تسجيل المتابعة")}>تم</button>
         <button type="button" className="btn-secondary px-3 py-2" onClick={() => onQuickUpdate(row, { status: "لم يرد", followup_status: "لم يرد", contact_status: "لم يرد", contact_result: "لم يرد" }, "تم تسجيل لم يرد")}>لم يرد</button>
         <button type="button" className="btn-secondary px-3 py-2" onClick={onPostpone}>تأجيل</button>
@@ -741,6 +746,9 @@ function ExceptionalFollowupModal({ branch, staffNames, userName, userId, onClos
 
 function ResultModal({ row, userId, onClose, onSaved }: { row: FollowupRow; userId: string; onClose: () => void; onSaved: (row: FollowupRow) => void }) {
   const [saving, setSaving] = useState(false);
+  const phone = phoneOf(row);
+  const hasValidPhone = phone && isValidEgyptPhone(phone, row.customer_code);
+  const activeFlags = getActiveCustomerFlags(row.customer_flags);
   const [form, setForm] = useState({
     contact_method: row.contact_method || "اتصال",
     contact_status: row.contact_status || "تم التواصل",
@@ -792,6 +800,22 @@ function ResultModal({ row, userId, onClose, onSaved }: { row: FollowupRow; user
   };
   return (
     <Modal title={`تسجيل نتيجة: ${row.customer_name || "عميل"}`} onClose={onClose}>
+      <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+        <h3 className="mb-2 text-sm font-black text-slate-700">معلومات العميل</h3>
+        <div className="grid grid-cols-2 gap-2 text-xs font-semibold text-slate-600">
+          <span>الكود: {row.customer_code || "بدون"}</span>
+          <span>الهاتف: {hasValidPhone ? phone : "لا يوجد رقم صحيح"}</span>
+          <span>الفرع: {normalizeBranchName(row.branch)}</span>
+          <span>التصنيف: {segmentOf(row)}</span>
+          <span>الحالة: {customerStatusOf(row)}</span>
+          <span>متوسط شهري: {avgMonthlyOf(row) === null ? "غير متاح" : formatMoney(avgMonthlyOf(row))}</span>
+        </div>
+        {activeFlags.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            <CustomerFlagsBadges customerFlags={row.customer_flags} limit={5} compact />
+          </div>
+        )}
+      </div>
       <div className="grid gap-3 md:grid-cols-2">
         <Field label="طريقة التواصل"><select className="dawaa-input w-full" value={form.contact_method} onChange={(e) => setForm({ ...form, contact_method: e.target.value })}>{CONTACT_METHODS.map((x) => <option key={x}>{x}</option>)}</select></Field>
         <Field label="حالة التواصل"><select className="dawaa-input w-full" value={form.contact_status} onChange={(e) => setForm({ ...form, contact_status: e.target.value })}>{["تم التواصل", "لم يرد", "مؤجل", "يحتاج مدير", "تم الشراء بعد المتابعة"].map((x) => <option key={x}>{x}</option>)}</select></Field>

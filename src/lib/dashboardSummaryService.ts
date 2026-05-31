@@ -9,6 +9,7 @@ export type SourceHealth = {
   staffSummaryAvailable: boolean;
   deliverySummaryAvailable: boolean;
   followupSummaryAvailable: boolean;
+  customerSummaryAvailable: boolean;
   notificationsAvailable: boolean;
   activityLogAvailable: boolean;
 };
@@ -36,6 +37,17 @@ export type DashboardKpis = {
   invoicesWithoutCustomerCode: number | null;
   invoicesWithoutSellerName: number | null;
   invoicesWithoutBranch: number | null;
+};
+
+export type CustomerIntelligence = {
+  importantNeedFollowup: number | null;
+  stoppedCustomers: number | null;
+  atRiskCustomers: number | null;
+  customersWithoutValidPhone: number | null;
+  incompleteCustomers: number | null;
+  overdueFollowups: number | null;
+  needsManagerFollowups: number | null;
+  error: string | null;
 };
 
 export type SalesDailySummary = {
@@ -117,6 +129,7 @@ export type DashboardSummary = {
   followupPerformance: FollowupPerformanceSummary[];
   notifications: DashboardNotification[];
   activity: DashboardActivity[];
+  customerIntelligence: CustomerIntelligence;
   dataHealth: DataHealth;
   sourceHealth: SourceHealth;
   errors: SourceError[];
@@ -130,6 +143,7 @@ const SOURCE_HEALTH_EMPTY: SourceHealth = {
   staffSummaryAvailable: false,
   deliverySummaryAvailable: false,
   followupSummaryAvailable: false,
+  customerSummaryAvailable: false,
   notificationsAvailable: false,
   activityLogAvailable: false,
 };
@@ -144,9 +158,26 @@ const DATA_HEALTH_EMPTY: DataHealth = {
   error: null,
 };
 
+const CUSTOMER_INTELLIGENCE_EMPTY: CustomerIntelligence = {
+  importantNeedFollowup: null,
+  stoppedCustomers: null,
+  atRiskCustomers: null,
+  customersWithoutValidPhone: null,
+  incompleteCustomers: null,
+  overdueFollowups: null,
+  needsManagerFollowups: null,
+  error: null,
+};
+
 function toNumber(value: unknown): number {
   const numberValue = Number(value ?? 0);
   return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+function toNullableNumber(value: unknown): number | null {
+  if (value === undefined || value === null || value === "") return null;
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : null;
 }
 
 function readFirst(row: Row | null | undefined, keys: string[], fallback: unknown = null) {
@@ -172,21 +203,22 @@ function addError(errors: SourceError[], source: string, message: string) {
   errors.push({ source, message });
 }
 
-function normalizeRpcKpis(data: unknown): DashboardKpis {
+function normalizeRpcKpis(data: unknown): DashboardKpis | null {
   const row = Array.isArray(data) ? (data[0] as Row | undefined) : (data as Row | null);
+  if (!row) return null;
   return {
-    netSales: toNumber(readFirst(row, ["net_total", "net_sales", "period_net_sales"])),
-    invoicesCount: toNumber(readFirst(row, ["invoices_count", "invoice_count", "total_invoices"])),
-    avgInvoice: toNumber(readFirst(row, ["avg_invoice", "average_invoice"])),
-    uniqueCustomers: toNumber(readFirst(row, ["unique_customers", "customers_count", "purchasing_customers"])),
-    activeDoctors: toNumber(readFirst(row, ["active_doctors", "active_sellers", "doctors_count"])),
-    activeDelivery: toNumber(readFirst(row, ["active_delivery", "active_delivery_staff", "delivery_staff_count"])),
-    dueFollowups: toNumber(readFirst(row, ["due_followups", "followups_due", "due_today"])),
-    overdueFollowups: toNumber(readFirst(row, ["overdue_followups", "followups_overdue", "overdue_count"])),
-    tasksDueToday: readFirst(row, ["tasks_due_today", "due_tasks"], null) === null ? null : toNumber(readFirst(row, ["tasks_due_today", "due_tasks"])),
-    invoicesWithoutCustomerCode: readFirst(row, ["invoices_without_customer_code"], null) === null ? null : toNumber(readFirst(row, ["invoices_without_customer_code"])),
-    invoicesWithoutSellerName: readFirst(row, ["invoices_without_seller_name"], null) === null ? null : toNumber(readFirst(row, ["invoices_without_seller_name"])),
-    invoicesWithoutBranch: readFirst(row, ["invoices_without_branch"], null) === null ? null : toNumber(readFirst(row, ["invoices_without_branch"])),
+    netSales: toNullableNumber(readFirst(row, ["net_total", "net_sales", "period_net_sales"])),
+    invoicesCount: toNullableNumber(readFirst(row, ["invoices_count", "invoice_count", "total_invoices"])),
+    avgInvoice: toNullableNumber(readFirst(row, ["avg_invoice", "average_invoice"])),
+    uniqueCustomers: toNullableNumber(readFirst(row, ["unique_customers", "customers_count", "purchasing_customers"])),
+    activeDoctors: toNullableNumber(readFirst(row, ["active_doctors", "active_sellers", "doctors_count"])),
+    activeDelivery: toNullableNumber(readFirst(row, ["active_delivery", "active_delivery_staff", "delivery_staff_count"])),
+    dueFollowups: toNullableNumber(readFirst(row, ["due_followups", "followups_due", "due_today"])),
+    overdueFollowups: toNullableNumber(readFirst(row, ["overdue_followups", "followups_overdue", "overdue_count"])),
+    tasksDueToday: toNullableNumber(readFirst(row, ["tasks_due_today", "due_tasks"])),
+    invoicesWithoutCustomerCode: toNullableNumber(readFirst(row, ["invoices_without_customer_code"])),
+    invoicesWithoutSellerName: toNullableNumber(readFirst(row, ["invoices_without_seller_name"])),
+    invoicesWithoutBranch: toNullableNumber(readFirst(row, ["invoices_without_branch"])),
   };
 }
 
@@ -328,6 +360,64 @@ async function fetchDataHealth(startDate: string, endDate: string, branch: strin
   }
 }
 
+async function countRows(table: string, build: (query: any) => any) {
+  let query = supabase.from(table).select("*", { count: "exact", head: true });
+  query = build(query);
+  const { count, error } = await query;
+  if (error) throw new Error(error.message);
+  return count ?? 0;
+}
+
+function startOfTodayIso() {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  return date.toISOString();
+}
+
+async function fetchCustomerIntelligence(branch: string, errors: SourceError[], health: SourceHealth): Promise<CustomerIntelligence> {
+  try {
+    const today = startOfTodayIso();
+    const applyBranch = (query: any) => (!isAllBranches(branch) ? query.eq("branch", branch) : query);
+    const [
+      importantNeedFollowup,
+      stoppedCustomers,
+      atRiskCustomers,
+      customersWithoutValidPhone,
+      incompleteCustomers,
+      overdueFollowups,
+      needsManagerFollowups,
+    ] = await Promise.all([
+      countRows("customer_metrics_summary", (query) =>
+        applyBranch(query.in("segment", ["مهم جدًا", "مهم"]).in("customer_status", ["مهدد بالتوقف", "متوقف"])),
+      ),
+      countRows("customer_metrics_summary", (query) => applyBranch(query.eq("customer_status", "متوقف"))),
+      countRows("customer_metrics_summary", (query) => applyBranch(query.eq("customer_status", "مهدد بالتوقف"))),
+      countRows("customer_metrics_summary", (query) => applyBranch(query.or("customer_phone.is.null,customer_phone.eq."))),
+      countRows("customer_metrics_summary", (query) => applyBranch(query.or("customer_code.is.null,customer_code.eq.,customer_name.is.null,customer_name.eq."))),
+      countRows("daily_followups", (query) =>
+        applyBranch(query.lt("followup_datetime", today).is("completed_at", null).is("postponed_until", null)),
+      ),
+      countRows("daily_followups", (query) => applyBranch(query.eq("needs_manager", true).is("completed_at", null))),
+    ]);
+
+    health.customerSummaryAvailable = true;
+    return {
+      importantNeedFollowup,
+      stoppedCustomers,
+      atRiskCustomers,
+      customersWithoutValidPhone,
+      incompleteCustomers,
+      overdueFollowups,
+      needsManagerFollowups,
+      error: null,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "غير متاح حاليًا";
+    addError(errors, "customer_metrics_summary", message);
+    return { ...CUSTOMER_INTELLIGENCE_EMPTY, error: message };
+  }
+}
+
 function mapDaily(row: Row): SalesDailySummary {
   return {
     saleDate: String(readFirst(row, ["sale_date"], "") || "").slice(0, 10),
@@ -420,6 +510,7 @@ export async function fetchExecutiveDashboardSummary(params: {
       followupPerformance: [],
       notifications: [],
       activity: [],
+      customerIntelligence: { ...CUSTOMER_INTELLIGENCE_EMPTY, error: "إعدادات Supabase غير موجودة." },
       dataHealth: { ...DATA_HEALTH_EMPTY, error: "إعدادات Supabase غير موجودة." },
       sourceHealth: SOURCE_HEALTH_EMPTY,
       errors: [{ source: "Supabase", message: "إعدادات Supabase غير موجودة." }],
@@ -430,7 +521,7 @@ export async function fetchExecutiveDashboardSummary(params: {
   const sourceHealth: SourceHealth = { ...SOURCE_HEALTH_EMPTY };
   const { startDate, endDate, branch } = params;
 
-  const [kpis, dailyRows, staffRows, deliveryRows, followupRows, notificationsRows, activityRows, dataHealth] = await Promise.all([
+  const [kpis, dailyRows, staffRows, deliveryRows, followupRows, notificationsRows, activityRows, dataHealth, customerIntelligence] = await Promise.all([
     fetchKpis(startDate, endDate, branch, errors, sourceHealth),
     fetchSummaryRows({
       table: "sales_daily_summary",
@@ -479,6 +570,7 @@ export async function fetchExecutiveDashboardSummary(params: {
     fetchOrderedRows("notifications", "created_at", 10, errors, sourceHealth, "notificationsAvailable"),
     fetchOrderedRows("activity_log", "created_at", 12, errors, sourceHealth, "activityLogAvailable"),
     fetchDataHealth(startDate, endDate, branch),
+    fetchCustomerIntelligence(branch, errors, sourceHealth),
   ]);
 
   return {
@@ -489,6 +581,7 @@ export async function fetchExecutiveDashboardSummary(params: {
     followupPerformance: followupRows.map(mapFollowup).filter((row) => row.followupDate),
     notifications: notificationsRows.map(mapNotification),
     activity: activityRows.map(mapActivity),
+    customerIntelligence,
     dataHealth,
     sourceHealth,
     errors,

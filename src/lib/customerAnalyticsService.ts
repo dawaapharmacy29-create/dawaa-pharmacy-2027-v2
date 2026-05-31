@@ -83,10 +83,74 @@ export function customerFlagLabels(flags?: Record<string, boolean> | null) {
 export function isValidEgyptPhone(phone?: string | null, customerCode?: string | null) {
   const clean = cleanEgyptianPhone(phone);
   if (!clean) return false;
-  if (customerCode && String(phone || "").trim() === String(customerCode || "").trim()) {
+  
+  // Invalid if starts with "code:"
+  const trimmed = String(phone || "").trim().toLowerCase();
+  if (trimmed.startsWith("code:")) return false;
+  
+  // Invalid if equals customerCode
+  if (customerCode && trimmed === String(customerCode || "").trim()) {
     return false;
   }
+  if (customerCode && trimmed === `code:${String(customerCode || "").trim()}`) {
+    return false;
+  }
+  
+  // Valid if 10-13 digits (Egyptian mobile: 01xxxxxxxxx or 201xxxxxxxxx)
+  const digits = clean.replace(/\D/g, "");
+  if (digits.length < 10 || digits.length > 13) return false;
+  
   return true;
+}
+
+export function getBestCustomerPhone(
+  followup: { customer_phone?: string | null; phone?: string | null; customer_code?: string | null },
+  customerSummary?: { customer_phone?: string | null } | null,
+  customerDetails?: {
+    whatsapp_phone?: string | null;
+    phone?: string | null;
+    phone_alt?: string | null;
+    customer_phone?: string | null;
+  } | null
+): string | null {
+  const customerCode = followup.customer_code || "";
+  
+  // Priority 1: followup.customer_phone if valid
+  if (followup.customer_phone && isValidEgyptPhone(followup.customer_phone, customerCode)) {
+    return followup.customer_phone;
+  }
+  
+  // Priority 2: followup.phone if valid
+  if (followup.phone && isValidEgyptPhone(followup.phone, customerCode)) {
+    return followup.phone;
+  }
+  
+  // Priority 3: customers.whatsapp_phone if valid
+  if (customerDetails?.whatsapp_phone && isValidEgyptPhone(customerDetails.whatsapp_phone, customerCode)) {
+    return customerDetails.whatsapp_phone;
+  }
+  
+  // Priority 4: customers.phone if valid
+  if (customerDetails?.phone && isValidEgyptPhone(customerDetails.phone, customerCode)) {
+    return customerDetails.phone;
+  }
+  
+  // Priority 5: customers.phone_alt if valid
+  if (customerDetails?.phone_alt && isValidEgyptPhone(customerDetails.phone_alt, customerCode)) {
+    return customerDetails.phone_alt;
+  }
+  
+  // Priority 6: customer_metrics_summary.customer_phone if valid
+  if (customerSummary?.customer_phone && isValidEgyptPhone(customerSummary.customer_phone, customerCode)) {
+    return customerSummary.customer_phone;
+  }
+  
+  // Priority 7: customers.customer_phone if valid
+  if (customerDetails?.customer_phone && isValidEgyptPhone(customerDetails.customer_phone, customerCode)) {
+    return customerDetails.customer_phone;
+  }
+  
+  return null;
 }
 
 export function isPseudoCustomer(customer?: { customer_name?: string | null; name?: string | null; customer_phone?: string | null; phone?: string | null; customer_id?: string | null; customer_code?: string | null; }) {
