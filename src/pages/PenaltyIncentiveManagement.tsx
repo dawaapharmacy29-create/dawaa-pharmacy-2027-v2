@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { useAuth, getCurrentUserProfile } from "@/hooks/useAuth";
 import { logActivity } from "@/lib/activityLog";
+import { notifyEmployee } from "@/lib/notificationService";
 import { supabase } from "@/lib/supabase";
 import { TABLES } from "@/lib/supabaseTables";
 import { formatDateTime, toNumber } from "@/lib/utils";
@@ -307,6 +308,27 @@ export default function PenaltyIncentiveManagement() {
         },
       });
 
+      await notifyEmployee({
+        title: form.type === "مكافأة" ? "تم تسجيل مكافأة جديدة" : "تم تسجيل خصم جديد",
+        message: `${form.reason} - ${form.points} نقطة - الحالة: ${finalStatus === "approved" ? "معتمد" : "قيد المراجعة"}`,
+        type: form.type === "مكافأة" ? "reward" : "deduction",
+        priority: form.type === "مكافأة" ? "normal" : "high",
+        recipient_staff_id: selectedStaff.id,
+        branch: selectedStaff.branch,
+        target_type: "point_record",
+        target_id: newRecordId,
+        target_route: "/staff-dashboard",
+        requires_action: form.type !== "مكافأة",
+        created_by: createdById,
+        created_by_name: user?.name,
+        metadata: {
+          staff_name: selectedStaff.name,
+          points: form.points,
+          reason: form.reason,
+          status: finalStatus,
+        },
+      });
+
       toast.success(
         finalStatus === "approved"
           ? "تم الحفظ والاعتماد بنجاح"
@@ -367,6 +389,25 @@ export default function PenaltyIncentiveManagement() {
           staffName: row.employee_name,
           reason: row.reason,
           status: nextStatus,
+        },
+      });
+      await notifyEmployee({
+        title: approve ? "تم اعتماد سجل النقاط" : "تم رفض سجل النقاط",
+        message: `${row.reason || row.display_reason || "سجل نقاط"} - ${row.employee_name}`,
+        type: isBonus(row) ? "reward" : "deduction",
+        priority: approve ? "normal" : "high",
+        recipient_staff_id: row.employee_id || row.staff_id || null,
+        branch: row.branch,
+        target_type: "point_record",
+        target_id: row.id,
+        target_route: "/staff-dashboard",
+        requires_action: !approve,
+        created_by: profile.id,
+        created_by_name: user?.name,
+        metadata: {
+          staff_name: row.employee_name,
+          status: nextStatus,
+          points: absPoints(row),
         },
       });
     } catch {

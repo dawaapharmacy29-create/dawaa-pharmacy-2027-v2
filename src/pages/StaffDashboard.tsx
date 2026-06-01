@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { TrendingUp, TrendingDown, Award, Star, Calendar } from "lucide-react";
+import { TrendingUp, TrendingDown, Award, Star, Calendar, BellRing, CheckSquare, HeadphonesIcon, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { canonicalMaxPoints, effectiveCyclePoints, getTransactionShortReason, isApprovedPointRecord, isRecordInCycle, pointRecordDelta, pointRecordStatus, recordBelongsToStaff } from "@/lib/pointsLedger";
@@ -7,6 +7,7 @@ import { getCurrentCycle } from "@/lib/pharmacy-cycle";
 import { calculateIncentive, getPerformanceLevel } from "@/lib/points";
 import { formatDateTime, percent } from "@/lib/utils";
 import { TABLES } from "@/lib/supabaseTables";
+import { normalizeNotification } from "@/lib/notificationService";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -42,6 +43,22 @@ function isPenaltyRecord(row: PointRecord) {
   return pointRecordDelta(row) < 0;
 }
 
+function MiniMetric({ icon: Icon, label, value, tone }: { icon: typeof BellRing; label: string; value: number; tone: "teal" | "red" | "amber" | "blue" }) {
+  const colors = {
+    teal: "text-teal-400 bg-teal-500/10",
+    red: "text-red-400 bg-red-500/10",
+    amber: "text-amber-400 bg-amber-500/10",
+    blue: "text-blue-400 bg-blue-500/10",
+  };
+  return (
+    <div className="stat-card text-center">
+      <div className={`mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-2xl ${colors[tone]}`}><Icon size={20} /></div>
+      <div className="num text-2xl font-bold text-white">{value}</div>
+      <div className="mt-1 text-xs text-slate-400">{label}</div>
+    </div>
+  );
+}
+
 // ─── Component ─────────────────────────────────────────────────────────────
 
 export default function StaffDashboard() {
@@ -62,6 +79,27 @@ export default function StaffDashboard() {
     table: TABLES.employeeTransactions,
     orderBy: { column: "created_at", ascending: false },
     limit: 1000,
+    realtimeEnabled: true,
+  });
+
+  const { data: rawNotifications } = useSupabaseQuery<Record<string, unknown>>({
+    table: TABLES.notifications,
+    orderBy: { column: "created_at", ascending: false },
+    limit: 100,
+    realtimeEnabled: true,
+  });
+
+  const { data: tasks } = useSupabaseQuery<Record<string, unknown>>({
+    table: TABLES.tasks,
+    orderBy: { column: "created_at", ascending: false },
+    limit: 120,
+    realtimeEnabled: true,
+  });
+
+  const { data: followups } = useSupabaseQuery<Record<string, unknown>>({
+    table: TABLES.dailyFollowups,
+    orderBy: { column: "created_at", ascending: false },
+    limit: 160,
     realtimeEnabled: true,
   });
 
@@ -138,6 +176,29 @@ export default function StaffDashboard() {
   const displayName = staffInfo?.name || user?.name || "الموظف";
   const displayRole = staffInfo?.role || user?.role || "";
   const displayBranch = staffInfo?.branch || user?.branch || "";
+  const myNotifications = rawNotifications
+    .map((row) => normalizeNotification(row))
+    .filter((item) =>
+      item.recipient_staff_id === targetStaff.id ||
+      item.user_id === user?.id ||
+      item.recipient_user_id === user?.id ||
+      item.recipient_role === user?.role ||
+      (!item.recipient_staff_id && !item.user_id && item.branch && item.branch === displayBranch)
+    );
+  const unreadNotifications = myNotifications.filter((item) => !item.read && !item.is_read);
+  const urgentRequired = myNotifications.filter((item) => item.requires_action || /high|urgent|critical|عاجل|حرج/i.test(String(item.priority || "")));
+  const myOpenTasks = tasks.filter((row) => {
+    const status = String(row.status || "");
+    if (["completed", "done", "closed", "مكتمل", "تم"].includes(status)) return false;
+    const assigned = String(row.assigned_to_name || row.staff_name || row.employee_name || row.assigned_to || "");
+    return assigned.includes(displayName) || String(row.assigned_staff_id || row.staff_id || "") === targetStaff.id;
+  });
+  const myFollowups = followups.filter((row) => {
+    const status = String(row.followup_status || row.status || "");
+    if (["completed", "done", "closed", "تم"].includes(status)) return false;
+    const assigned = String(row.responsible_name || row.assigned_to || row.assigned_doctor || "");
+    return assigned.includes(displayName) || String(row.assigned_staff_id || row.staff_id || "") === targetStaff.id;
+  });
 
   const pointsColor =
     pointsPercent >= 90
@@ -234,6 +295,45 @@ export default function StaffDashboard() {
             </div>
             <div className="text-slate-400 text-xs mt-0.5">
               عمليات في الدورة
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h2 className="section-title mb-3">مطلوب منك الآن</h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <MiniMetric icon={BellRing} label="إشعارات غير مقروءة" value={unreadNotifications.length} tone="teal" />
+          <MiniMetric icon={ShieldAlert} label="إجراءات عاجلة" value={urgentRequired.length} tone="red" />
+          <MiniMetric icon={CheckSquare} label="مهام مفتوحة" value={myOpenTasks.length} tone="amber" />
+          <MiniMetric icon={HeadphonesIcon} label="متابعات عملاء" value={myFollowups.length} tone="blue" />
+        </div>
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <div className="stat-card">
+            <h3 className="mb-3 font-bold text-white">سجل إشعاراتي</h3>
+            <div className="space-y-2">
+              {myNotifications.slice(0, 8).map((item) => (
+                <div key={item.id} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-white">{item.title}</span>
+                    <span className="text-xs text-slate-500">{String(item.created_at).slice(0, 10)}</span>
+                  </div>
+                  <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-400">{item.body || item.message}</p>
+                </div>
+              ))}
+              {!myNotifications.length && <div className="rounded-xl border border-dashed border-slate-700 p-4 text-center text-sm text-slate-500">لا توجد إشعارات تخصك حاليًا</div>}
+            </div>
+          </div>
+          <div className="stat-card">
+            <h3 className="mb-3 font-bold text-white">مهامي ومتابعاتي</h3>
+            <div className="space-y-2">
+              {myOpenTasks.slice(0, 4).map((item) => (
+                <div key={String(item.id)} className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-slate-300">{String(item.title || item.description || "مهمة")}</div>
+              ))}
+              {myFollowups.slice(0, 4).map((item) => (
+                <div key={String(item.id)} className="rounded-xl border border-teal-500/20 bg-teal-500/10 p-3 text-sm text-teal-100">متابعة: {String(item.customer_name || item.name || "عميل")}</div>
+              ))}
+              {!myOpenTasks.length && !myFollowups.length && <div className="rounded-xl border border-dashed border-slate-700 p-4 text-center text-sm text-slate-500">لا توجد مهام مفتوحة مسندة لك</div>}
             </div>
           </div>
         </div>

@@ -107,35 +107,35 @@ export function getBestCustomerPhone(
   } | null
 ): string | null {
   const customerCode = followup.customer_code || "";
-  
-  // Priority 1: followup.customer_phone if valid
-  if (followup.customer_phone && isValidEgyptPhone(followup.customer_phone, customerCode)) {
-    return followup.customer_phone;
+
+  // Priority 1: customer_metrics_summary.customer_phone if valid
+  if (customerSummary?.customer_phone && isValidEgyptPhone(customerSummary.customer_phone, customerCode)) {
+    return customerSummary.customer_phone;
   }
-  
-  // Priority 2: followup.phone if valid
-  if (followup.phone && isValidEgyptPhone(followup.phone, customerCode)) {
-    return followup.phone;
-  }
-  
-  // Priority 3: customers.whatsapp_phone if valid
+
+  // Priority 2: customers.whatsapp_phone if valid
   if (customerDetails?.whatsapp_phone && isValidEgyptPhone(customerDetails.whatsapp_phone, customerCode)) {
     return customerDetails.whatsapp_phone;
   }
   
-  // Priority 4: customers.phone if valid
+  // Priority 3: customers.phone if valid
   if (customerDetails?.phone && isValidEgyptPhone(customerDetails.phone, customerCode)) {
     return customerDetails.phone;
   }
   
-  // Priority 5: customers.phone_alt if valid
+  // Priority 4: customers.phone_alt if valid
   if (customerDetails?.phone_alt && isValidEgyptPhone(customerDetails.phone_alt, customerCode)) {
     return customerDetails.phone_alt;
   }
-  
-  // Priority 6: customer_metrics_summary.customer_phone if valid
-  if (customerSummary?.customer_phone && isValidEgyptPhone(customerSummary.customer_phone, customerCode)) {
-    return customerSummary.customer_phone;
+
+  // Priority 5: daily_followups.customer_phone if valid
+  if (followup.customer_phone && isValidEgyptPhone(followup.customer_phone, customerCode)) {
+    return followup.customer_phone;
+  }
+
+  // Priority 6: daily_followups.phone if valid
+  if (followup.phone && isValidEgyptPhone(followup.phone, customerCode)) {
+    return followup.phone;
   }
   
   // Priority 7: customers.customer_phone if valid

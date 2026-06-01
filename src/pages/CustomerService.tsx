@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import {
   AlertTriangle,
   CalendarClock,
+  Clipboard,
   HeadphonesIcon,
   Loader2,
   MessageSquare,
@@ -29,12 +30,13 @@ import {
   type FollowupResultPayload,
   type FollowupRow,
 } from "@/lib/api/customerServiceCommandCenter";
-import { buildCustomerServiceWhatsAppMessage } from "@/lib/whatsappTemplates";
+import { buildCustomerCareScript, chooseCustomerCareScriptType } from "@/lib/whatsappTemplates";
 import { cleanEgyptianPhone, generateWhatsAppLink } from "@/lib/whatsapp";
 import { isValidEgyptPhone, getBestCustomerPhone } from "@/lib/customerAnalyticsService";
 import { normalizeBranchName } from "@/lib/branch";
 import { BRANCHES } from "@/lib/constants";
 import { logActivity } from "@/lib/activityLog";
+import { notifyCustomerServiceResponsible } from "@/lib/notificationService";
 import {
   getActiveCustomerFlags,
 } from "@/lib/customerFlags";
@@ -44,6 +46,16 @@ const STATUS_OPTIONS = [ALL_FILTER, "معلق", "تم", "لم يرد", "مؤجل
 const PRIORITY_OPTIONS = ["عاجل", "مهم", "متوسط", "عادي"];
 const REQUEST_TYPES = ["متابعة استثنائية", "شكوى", "طلب ناقص", "مشكلة توصيل", "طلب خاص", "استرجاع عميل"];
 const CONTACT_METHODS = ["اتصال", "واتساب", "رسالة", "زيارة"];
+const PAGE_TABS = [
+  { id: "today", label: "قائمة اليوم" },
+  { id: "requests", label: "طلبات متابعة من الفريق" },
+  { id: "history", label: "سجل المتابعات" },
+  { id: "performance", label: "أداء خدمة العملاء" },
+  { id: "alerts", label: "تنبيهات العملاء" },
+  { id: "scripts", label: "سكريبتات التواصل" },
+  { id: "evaluation", label: "تقييم التعاملات" },
+] as const;
+type PageTab = (typeof PAGE_TABS)[number]["id"];
 const CUSTOMER_CARE_RESPONSIBLES = [
   { branch: "فرع الشامي", name: "د ضحى" },
   { branch: "فرع شكري", name: "د دنيا" },
@@ -171,6 +183,10 @@ export default function CustomerService() {
   const [selectedFollowup, setSelectedFollowup] = useState<FollowupRow | null>(null);
   const [selectedResponsible, setSelectedResponsible] = useState<string>(ALL_FILTER);
   const [staffNames, setStaffNames] = useState<string[]>([]);
+  const [activeTab, setActiveTab] = useState<PageTab>("today");
+  const [showDoctorRequest, setShowDoctorRequest] = useState(false);
+  const [interactionReviews, setInteractionReviews] = useState<Record<string, unknown>[]>([]);
+  const [reviewsAvailable, setReviewsAvailable] = useState(true);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setDebouncedSearch(search.trim()), 400);
@@ -185,6 +201,18 @@ export default function CustomerService() {
       .then(({ data }) => {
         const names = [...new Set((data || []).map((row) => String(row.name || "").trim()).filter(Boolean))];
         setStaffNames(names);
+      });
+  }, []);
+
+  useEffect(() => {
+    supabase
+      .from("conversation_sales_reviews")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(120)
+      .then(({ data, error }) => {
+        setReviewsAvailable(!error);
+        setInteractionReviews((data || []) as Record<string, unknown>[]);
       });
   }, []);
 
@@ -219,6 +247,14 @@ export default function CustomerService() {
   }, [loadFollowups]);
 
   const stats = useMemo(() => calculateFollowupStats(followups), [followups]);
+  const recoveredCount = useMemo(
+    () => followups.filter((row) => row.purchase_after_followup && ["متوقف", "مهدد بالتوقف"].includes(customerStatusOf(row))).length,
+    [followups],
+  );
+  const invalidPhoneCount = useMemo(
+    () => followups.filter((row) => !isValidEgyptPhone(phoneOf(row), row.customer_code)).length,
+    [followups],
+  );
   const teamPerformance = useMemo(() => calculateTeamPerformance(followups), [followups]);
   const responsibleOptions = useMemo(() => {
     const fromRows = followups.map(responsibleOf).filter((name) => name !== "غير محدد");
@@ -298,7 +334,17 @@ export default function CustomerService() {
       setFollowups((items) => items.map((item) => item.id === updated.id ? updated : item));
       setSelectedFollowup((current) => current?.id === updated.id ? updated : current);
       toast.success(success);
-      await safeLog(success, { followup_id: updated.id, customer_name: updated.customer_name });
+      const activityAction =
+        payload.needs_manager ? "followup_needs_manager"
+          : payload.followup_status === "لم يرد" || payload.contact_status === "لم يرد" ? "mark_followup_no_answer"
+          : payload.postponed_until || payload.followup_status === "مؤجل" || payload.contact_status === "مؤجل" ? "postpone_followup"
+          : "save_followup_result";
+      await safeLog(activityAction, {
+        followup_id: updated.id,
+        customer_name: updated.customer_name,
+        followup_status: updated.followup_status,
+        contact_status: updated.contact_status,
+      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "تعذر حفظ المتابعة");
     }
@@ -323,6 +369,28 @@ export default function CustomerService() {
           <button type="button" className="btn-secondary inline-flex items-center gap-2" onClick={() => setShowExceptional(true)}>
             <Plus size={16} /> متابعة استثنائية
           </button>
+          <button type="button" className="btn-secondary inline-flex items-center gap-2" onClick={() => setShowDoctorRequest(true)}>
+            <Plus size={16} /> طلب متابعة خدمة عملاء
+          </button>
+        </div>
+      </section>
+
+      <section className="dawaa-panel py-3">
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {PAGE_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`shrink-0 rounded-xl border px-4 py-2 text-sm font-black transition ${
+                activeTab === tab.id
+                  ? "border-teal-300 bg-teal-50 text-teal-700 shadow-sm"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
       </section>
 
@@ -345,7 +413,7 @@ export default function CustomerService() {
         </div>
       </section>
 
-      <section className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+      <section className="grid grid-cols-2 gap-3 md:grid-cols-5 xl:grid-cols-10">
         <Kpi label="إجمالي متابعات اليوم" value={stats.totalToday} tone="blue" />
         <Kpi label="تمت" value={stats.completed} tone="emerald" />
         <Kpi label="لم يرد" value={stats.noAnswer} tone="amber" />
@@ -354,9 +422,11 @@ export default function CustomerService() {
         <Kpi label="يحتاج مدير" value={stats.needsManager} tone="red" />
         <Kpi label="شراء بعد المتابعة" value={stats.purchaseAfterCount} tone="emerald" />
         <Kpi label="قيمة الشراء بعد المتابعة" value={formatMoney(stats.purchaseAfterAmount)} tone="teal" />
+        <Kpi label="عملاء تم استرجاعهم" value={recoveredCount} tone="emerald" />
+        <Kpi label="بدون رقم صحيح" value={invalidPhoneCount} tone="amber" />
       </section>
 
-      <CustomerCareIncentivePanel followups={followups} />
+      {activeTab === "performance" && <CustomerCareIncentivePanel followups={followups} />}
 
       {error && (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
@@ -365,7 +435,7 @@ export default function CustomerService() {
         </div>
       )}
 
-      <section className="grid gap-4 xl:grid-cols-[1.45fr_.85fr]">
+      {activeTab === "today" && <section className="grid gap-4 xl:grid-cols-[1.45fr_.85fr]">
         <div className="space-y-4">
           <SectionTitle icon={HeadphonesIcon} title="قائمة المتابعات الذكية" subtitle="مجمعة حسب الأولوية والحالة من daily_followups و customer_metrics_summary" />
           {loading ? <LoadingPanel /> : grouped.length ? grouped.map((group) => (
@@ -377,6 +447,7 @@ export default function CustomerService() {
               onResult={setResultFollowup}
               onPostpone={setPostponeFollowup}
               onQuickUpdate={quickUpdate}
+              onLog={safeLog}
               selectedId={selectedFollowup?.id}
             />
           )) : <Empty text="لا توجد متابعات مطابقة للفلاتر الحالية" />}
@@ -391,12 +462,32 @@ export default function CustomerService() {
             onSelect={setSelectedResponsible}
           />
         </div>
-      </section>
+      </section>}
 
-      <section className="grid gap-4 xl:grid-cols-2">
+      {activeTab === "history" && <section className="grid gap-4 xl:grid-cols-2">
         <FollowupHistoryPanel followups={followups} />
-        <CustomerHandlingEvaluationPanel />
-      </section>
+        <CustomerHistoryCenter followup={selectedFollowup} />
+      </section>}
+
+      {activeTab === "requests" && <section className="grid gap-4 xl:grid-cols-2">
+        <DoctorRequestedFollowupsPanel followups={followups} onCreate={() => setShowDoctorRequest(true)} />
+        <CustomerDecisionPanel row={selectedFollowup} />
+      </section>}
+
+      {activeTab === "alerts" && <section className="grid gap-4 xl:grid-cols-2">
+        <CustomerAlertsPanel followups={followups} />
+        <CustomerDecisionPanel row={selectedFollowup} />
+      </section>}
+
+      {activeTab === "scripts" && <section className="grid gap-4 xl:grid-cols-2">
+        <ScriptPreviewPanel row={selectedFollowup} onLog={(action, details) => safeLog(action, details)} />
+        <CustomerDecisionPanel row={selectedFollowup} />
+      </section>}
+
+      {activeTab === "evaluation" && <section className="grid gap-4 xl:grid-cols-2">
+        <CustomerHandlingEvaluationPanel reviews={interactionReviews} available={reviewsAvailable} />
+        <TeamAnalytics rows={teamPerformance} manager={manager} selected={selectedResponsible} onSelect={setSelectedResponsible} />
+      </section>}
 
       {showExceptional && (
         <ExceptionalFollowupModal
@@ -409,7 +500,23 @@ export default function CustomerService() {
             setFollowups((items) => [row, ...items]);
             setSelectedFollowup(row);
             setShowExceptional(false);
-            safeLog("إنشاء متابعة استثنائية", { followup_id: row.id, customer_name: row.customer_name });
+            safeLog("create_followup", { followup_id: row.id, customer_name: row.customer_name });
+          }}
+        />
+      )}
+
+      {showDoctorRequest && (
+        <DoctorFollowupRequestModal
+          branch={branchFilter === ALL_FILTER ? "" : branchFilter}
+          staffNames={staffNames}
+          userName={user?.name || ""}
+          userId={user?.id || ""}
+          onClose={() => setShowDoctorRequest(false)}
+          onCreated={(row) => {
+            setFollowups((items) => [row, ...items]);
+            setSelectedFollowup(row);
+            setShowDoctorRequest(false);
+            safeLog("create_customer_followup_request", { followup_id: row.id, customer_name: row.customer_name });
           }}
         />
       )}
@@ -423,7 +530,7 @@ export default function CustomerService() {
             setFollowups((items) => items.map((item) => item.id === updated.id ? updated : item));
             setSelectedFollowup((current) => current?.id === updated.id ? updated : current);
             setResultFollowup(null);
-            safeLog("تسجيل نتيجة متابعة", { followup_id: updated.id, result: updated.followup_result });
+            safeLog("save_followup_result", { followup_id: updated.id, result: updated.followup_result });
           }}
         />
       )}
@@ -437,7 +544,7 @@ export default function CustomerService() {
             setFollowups((items) => items.map((item) => item.id === updated.id ? updated : item));
             setSelectedFollowup((current) => current?.id === updated.id ? updated : current);
             setPostponeFollowup(null);
-            safeLog("تأجيل متابعة", { followup_id: updated.id, postponed_until: updated.postponed_until });
+            safeLog("postpone_followup", { followup_id: updated.id, postponed_until: updated.postponed_until });
           }}
         />
       )}
@@ -585,6 +692,7 @@ function FollowupGroup({
   onResult: (row: FollowupRow) => void;
   onPostpone: (row: FollowupRow) => void;
   onQuickUpdate: (row: FollowupRow, payload: FollowupResultPayload, success: string) => void;
+  onLog: (action: string, details: Record<string, unknown>) => void;
 }) {
   return (
     <section className="dawaa-panel">
@@ -602,6 +710,7 @@ function FollowupGroup({
             onResult={() => onResult(row)}
             onPostpone={() => onPostpone(row)}
             onQuickUpdate={onQuickUpdate}
+            onLog={onLog}
           />
         ))}
       </div>
@@ -609,28 +718,46 @@ function FollowupGroup({
   );
 }
 
-function FollowupCard({ row, active, onSelect, onResult, onPostpone, onQuickUpdate }: {
+function FollowupCard({ row, active, onSelect, onResult, onPostpone, onQuickUpdate, onLog }: {
   row: FollowupRow;
   active: boolean;
   onSelect: () => void;
   onResult: () => void;
   onPostpone: () => void;
   onQuickUpdate: (row: FollowupRow, payload: FollowupResultPayload, success: string) => void;
+  onLog: (action: string, details: Record<string, unknown>) => void;
 }) {
   const phone = phoneOf(row);
   const cleanPhone = cleanEgyptianPhone(phone);
   const hasValidPhone = phone && isValidEgyptPhone(phone, row.customer_code);
   const activeFlags = getActiveCustomerFlags(row.customer_flags);
   const handlingNote = importantHandlingNote(row);
-  const message = buildCustomerServiceWhatsAppMessage({
+  const scriptType = chooseCustomerCareScriptType({
+    segment: segmentOf(row),
+    customerStatus: customerStatusOf(row),
+    purchaseFrequencyStatus: row.purchase_frequency_status,
+    flags: row.customer_flags,
+    hasValidPhone: Boolean(hasValidPhone),
+  });
+  const message = buildCustomerCareScript({
     customerName: row.customer_name || row.name,
-    staffName: responsibleOf(row),
+    responsibleName: responsibleOf(row),
     branch: row.branch,
-    reason: row.followup_reason || row.suggested_action || row.request_type,
-    flags: activeFlags.map(f => f.label),
+    followupReason: row.followup_reason || row.request_type,
+    suggestedAction: row.suggested_action,
+    segment: segmentOf(row),
+    customerStatus: customerStatusOf(row),
+    flags: row.customer_flags,
     purchaseFrequencyStatus: row.purchase_frequency_status ? (row.purchase_frequency_status === "stopped" ? "توقف عن الشراء" : row.purchase_frequency_status === "decreased" ? "انخفض الشراء" : row.purchase_frequency_status === "normal" ? "طبيعي" : row.purchase_frequency_status) : undefined,
+    scriptType,
+    hasValidPhone: Boolean(hasValidPhone),
   });
   const wa = hasValidPhone && cleanPhone ? generateWhatsAppLink(cleanPhone, message) : "";
+  const copyScript = async () => {
+    await navigator.clipboard.writeText(message);
+    toast.success("تم نسخ رسالة المتابعة");
+    onLog("whatsapp_message_copied", { followup_id: row.id, customer_code: row.customer_code, script_type: scriptType });
+  };
   return (
     <article className={`rounded-2xl border bg-white p-4 shadow-sm transition hover:shadow-md ${active ? "border-teal-300 ring-2 ring-teal-100" : "border-slate-200"}`} onClick={onSelect}>
       <div className="flex items-start justify-between gap-3">
@@ -666,16 +793,20 @@ function FollowupCard({ row, active, onSelect, onResult, onPostpone, onQuickUpda
       <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm font-semibold leading-6 text-slate-700">
         {row.suggested_action || row.followup_reason || row.request_details || "تواصل مع العميل وسجل نتيجة المتابعة."}
       </div>
+      <div className="mt-2 rounded-xl border border-teal-200 bg-teal-50 p-3 text-xs font-bold leading-5 text-teal-800">
+        سكريبت مقترح: {message.split("\n").slice(0, 2).join(" ")}
+      </div>
       {handlingNote ? (
         <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs font-bold leading-5 text-amber-800">
           ملاحظة مهمة قبل التواصل: {handlingNote}
         </div>
       ) : null}
       <div className="mt-3 flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
-        <a href={wa || undefined} target="_blank" rel="noopener noreferrer" className={`btn-secondary inline-flex items-center gap-1 px-3 py-2 ${!wa ? "pointer-events-none opacity-50" : ""}`} title={wa ? "فتح واتساب" : "لا يوجد رقم هاتف صحيح"}>
+        <a href={wa || undefined} target="_blank" rel="noopener noreferrer" onClick={() => onLog("whatsapp_opened", { followup_id: row.id, customer_code: row.customer_code })} className={`btn-secondary inline-flex items-center gap-1 px-3 py-2 ${!wa ? "pointer-events-none opacity-50" : ""}`} title={wa ? "فتح واتساب" : "لا يوجد رقم هاتف صحيح"}>
           <MessageSquare size={14} /> واتساب
         </a>
-        {hasValidPhone && cleanPhone ? <a href={`tel:${cleanPhone}`} className="btn-secondary inline-flex items-center gap-1 px-3 py-2"><PhoneCall size={14} /> اتصال</a> : null}
+        <button type="button" className="btn-secondary inline-flex items-center gap-1 px-3 py-2" onClick={copyScript}><Clipboard size={14} /> نسخ رسالة</button>
+        {hasValidPhone && cleanPhone ? <a href={`tel:${cleanPhone}`} onClick={() => onLog("call_clicked", { followup_id: row.id, customer_code: row.customer_code })} className="btn-secondary inline-flex items-center gap-1 px-3 py-2"><PhoneCall size={14} /> اتصال</a> : null}
         <button type="button" className="btn-secondary px-3 py-2" onClick={() => onQuickUpdate(row, { status: "تم", followup_status: "تم", contact_status: "تم التواصل", completed_at: new Date().toISOString() }, "تم تسجيل المتابعة")}>تم</button>
         <button type="button" className="btn-secondary px-3 py-2" onClick={() => onQuickUpdate(row, { status: "لم يرد", followup_status: "لم يرد", contact_status: "لم يرد", contact_result: "لم يرد" }, "تم تسجيل لم يرد")}>لم يرد</button>
         <button type="button" className="btn-secondary px-3 py-2" onClick={onPostpone}>تأجيل</button>
@@ -799,23 +930,195 @@ function FollowupHistoryPanel({ followups }: { followups: FollowupRow[] }) {
   );
 }
 
-function CustomerHandlingEvaluationPanel() {
+function CustomerHandlingEvaluationPanel({ reviews, available }: { reviews: Record<string, unknown>[]; available: boolean }) {
+  const scoreOf = (row: Record<string, unknown>) => Number(row.finalScore ?? row.final_score ?? row.score ?? row.total_score ?? 0);
+  const scored = reviews.filter((row) => scoreOf(row) > 0);
+  const avgScore = scored.length ? scored.reduce((sum, row) => sum + scoreOf(row), 0) / scored.length : null;
+  const byDoctor = new Map<string, { count: number; total: number }>();
+  for (const row of scored) {
+    const name = String(row.staff_name || row.doctor_name || row.employee_name || row.user_name || "غير محدد");
+    const current = byDoctor.get(name) || { count: 0, total: 0 };
+    current.count += 1;
+    current.total += scoreOf(row);
+    byDoctor.set(name, current);
+  }
+  const topDoctor = [...byDoctor.entries()].sort((a, b) => (b[1].total / b[1].count) - (a[1].total / a[1].count))[0] || null;
   return (
     <section className="dawaa-panel">
       <h3 className="text-base font-black text-slate-950">تقييم تعاملات العملاء</h3>
       <p className="mt-1 text-sm font-semibold text-slate-500">
         مركز تقييم واتساب، المكالمات، التعامل داخل الفرع، الشكاوى، وجودة إغلاق المتابعة.
       </p>
+      {available ? (
+        <div className="mt-4 grid gap-2 sm:grid-cols-3">
+          <SmallMetric label="عدد التقييمات" value={reviews.length} />
+          <SmallMetric label="متوسط التقييم" value={avgScore === null ? "غير متاح" : `${avgScore.toFixed(1)} / 100`} />
+          <SmallMetric label="أفضل أداء" value={topDoctor ? topDoctor[0] : "غير متاح"} />
+        </div>
+      ) : (
+        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800">
+          مصدر تقييمات التعامل مع العملاء غير متاح حاليًا.
+        </div>
+      )}
       <div className="mt-4 grid gap-2 sm:grid-cols-2">
         {["سرعة الرد", "استخدام اسم العميل", "فهم طلب العميل", "جودة الترشيح", "التعامل مع السعر", "التعامل مع البدائل", "حل المشكلة", "إغلاق المتابعة", "رضا العميل", "الالتزام بملاحظات العميل"].map((item) => (
           <div key={item} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-700">{item}</div>
         ))}
       </div>
-      <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800">
+      {!reviews.length && available ? <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800">
         سيتم ربط تقييم المحادثات والتعاملات هنا بعد تفعيل مصدر التقييمات.
+      </div> : null}
+    </section>
+  );
+}
+
+function DoctorRequestedFollowupsPanel({ followups, onCreate }: { followups: FollowupRow[]; onCreate: () => void }) {
+  const requests = followups.filter((row) => row.request_type === "doctor_requested_followup" || row.request_status);
+  return (
+    <section className="dawaa-panel">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="text-base font-black text-slate-950">طلبات متابعة من الفريق</h3>
+        <button type="button" className="dawaa-button-primary px-3 py-2" onClick={onCreate}>طلب متابعة جديد</button>
+      </div>
+      {requests.length ? (
+        <div className="space-y-2">
+          {requests.slice(0, 20).map((row) => (
+            <div key={row.id} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-black text-slate-950">{row.customer_name || row.name}</div>
+                  <div className="mt-1 text-xs font-bold text-slate-500">طلب من: {row.created_by_name || "غير محدد"} · المسؤول: {responsibleOf(row)}</div>
+                </div>
+                <StatusBadge status={followupStatus(row)} />
+              </div>
+              <div className="mt-2 text-sm font-semibold text-slate-600">{row.request_details || row.followup_reason || row.suggested_action || "طلب متابعة خدمة عملاء"}</div>
+            </div>
+          ))}
+        </div>
+      ) : <Empty text="لا توجد طلبات متابعة من الفريق في الفلاتر الحالية" />}
+    </section>
+  );
+}
+
+function CustomerAlertsPanel({ followups }: { followups: FollowupRow[] }) {
+  const alerts = followups
+    .filter((row) => row.needs_manager || isOverdueFollowup(row) || !isValidEgyptPhone(phoneOf(row), row.customer_code) || ["متوقف", "مهدد بالتوقف"].includes(customerStatusOf(row)) || ["stopped", "decreased"].includes(row.purchase_frequency_status || ""))
+    .sort(compareFollowupPriority)
+    .slice(0, 25);
+  return (
+    <section className="dawaa-panel">
+      <h3 className="mb-3 text-base font-black text-slate-950">تنبيهات العملاء</h3>
+      {alerts.length ? (
+        <div className="space-y-2">
+          {alerts.map((row) => {
+            const critical = segmentOf(row) === "مهم جدًا" && (customerStatusOf(row) === "متوقف" || row.purchase_frequency_status === "stopped");
+            return (
+              <div key={row.id} className={`rounded-2xl border p-3 shadow-sm ${critical ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50"}`}>
+                <div className="font-black text-slate-950">{row.customer_name || row.name || "عميل"}</div>
+                <div className="mt-1 text-xs font-bold text-slate-600">{normalizeBranchName(row.branch)} · {responsibleOf(row)} · {phoneDisplay(phoneOf(row), row.customer_code)}</div>
+                <div className="mt-2 text-sm font-bold text-slate-700">{critical ? "عميل مهم جدًا يحتاج تدخل سريع" : recommendedAction(row.customer_metrics)}</div>
+              </div>
+            );
+          })}
+        </div>
+      ) : <Empty text="لا توجد تنبيهات عملاء في الفلاتر الحالية" />}
+    </section>
+  );
+}
+
+function CustomerHistoryCenter({ followup }: { followup: FollowupRow | null }) {
+  if (!followup) return <section className="dawaa-panel"><Empty text="اختر عميلًا لعرض سجل العلاقة الكامل" /></section>;
+  return (
+    <section className="dawaa-panel">
+      <h3 className="mb-3 text-base font-black text-slate-950">سجل العميل الكامل</h3>
+      <div className="grid gap-2 text-sm">
+        <Info label="العميل" value={followup.customer_name || followup.name || "غير محدد"} />
+        <Info label="الكود" value={followup.customer_code || "بدون"} />
+        <Info label="الهاتف" value={phoneDisplay(phoneOf(followup), followup.customer_code)} />
+        <Info label="الفرع" value={normalizeBranchName(followup.branch)} />
+        <Info label="التصنيف والحالة" value={`${segmentOf(followup)} · ${customerStatusOf(followup)}`} />
+        <Info label="إجمالي المشتريات" value={followup.customer_metrics ? formatMoney(followup.customer_metrics.total_spent) : "غير متاح"} />
+        <Info label="متوسط شهري" value={avgMonthlyOf(followup) === null ? "غير متاح" : formatMoney(avgMonthlyOf(followup))} />
+        <Info label="آخر شراء" value={formatDate(lastPurchaseOf(followup))} />
+      </div>
+      <div className="mt-3">
+        <CustomerFlagsBadges customerFlags={followup.customer_flags} limit={8} compact />
+      </div>
+      {importantHandlingNote(followup) ? <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800">{importantHandlingNote(followup)}</div> : null}
+      <div className="mt-3 rounded-2xl border border-teal-200 bg-teal-50 p-3 text-sm font-bold text-teal-800">
+        {buildCustomerCareRecommendations(followup).join(" • ")}
       </div>
     </section>
   );
+}
+
+function ScriptPreviewPanel({ row, onLog }: { row: FollowupRow | null; onLog: (action: string, details: Record<string, unknown>) => void }) {
+  const [scriptType, setScriptType] = useState<string>("");
+  if (!row) return <section className="dawaa-panel"><Empty text="اختر متابعة لعرض سكريبت التواصل" /></section>;
+  const phone = phoneOf(row);
+  const hasValidPhone = Boolean(phone && isValidEgyptPhone(phone, row.customer_code));
+  const selectedType = scriptType || chooseCustomerCareScriptType({
+    segment: segmentOf(row),
+    customerStatus: customerStatusOf(row),
+    purchaseFrequencyStatus: row.purchase_frequency_status,
+    flags: row.customer_flags,
+    hasValidPhone,
+  });
+  const message = buildCustomerCareScript({
+    customerName: row.customer_name || row.name,
+    segment: segmentOf(row),
+    customerStatus: customerStatusOf(row),
+    purchaseFrequencyStatus: row.purchase_frequency_status,
+    flags: row.customer_flags,
+    followupReason: row.followup_reason,
+    suggestedAction: row.suggested_action,
+    branch: row.branch,
+    responsibleName: responsibleOf(row),
+    scriptType: selectedType as any,
+    hasValidPhone,
+  });
+  const copy = async () => {
+    await navigator.clipboard.writeText(message);
+    toast.success("تم نسخ السكريبت");
+    onLog("whatsapp_message_copied", { followup_id: row.id, script_type: selectedType });
+  };
+  return (
+    <section className="dawaa-panel">
+      <h3 className="mb-3 text-base font-black text-slate-950">سكريبتات التواصل</h3>
+      <select className="dawaa-input mb-3 w-full" value={selectedType} onChange={(event) => setScriptType(event.target.value)}>
+        <option value="friendly_general">متابعة ودية عامة</option>
+        <option value="vip">عميل مهم جدًا / VIP</option>
+        <option value="stopped">عميل متوقف</option>
+        <option value="reduced">عميل قلل شراءه</option>
+        <option value="price_sensitive">حساس للسعر</option>
+        <option value="no_substitutes">لا يفضل البدائل</option>
+        <option value="complaint_manager">شكوى / يحتاج مدير</option>
+        <option value="periodic_reminder">تذكير دوري</option>
+        <option value="usage_explanation">شرح استخدام</option>
+        <option value="data_completion">استكمال بيانات</option>
+      </select>
+      <div className="whitespace-pre-line rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-semibold leading-7 text-slate-700">{message}</div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button type="button" className="dawaa-button-primary px-4 py-2" onClick={copy}>نسخ الرسالة</button>
+        {hasValidPhone ? <a className="btn-secondary px-4 py-2" target="_blank" rel="noopener noreferrer" href={generateWhatsAppLink(cleanEgyptianPhone(phone), message)} onClick={() => onLog("whatsapp_opened", { followup_id: row.id })}>فتح واتساب</a> : <span className="rounded-xl bg-amber-50 px-4 py-2 text-sm font-black text-amber-700">لا يوجد رقم صحيح</span>}
+      </div>
+    </section>
+  );
+}
+
+function buildCustomerCareRecommendations(row: FollowupRow) {
+  const recommendations: string[] = [];
+  if (!isValidEgyptPhone(phoneOf(row), row.customer_code)) recommendations.push("العميل بدون رقم صحيح، ابدأ باستكمال البيانات.");
+  if (segmentOf(row) === "مهم جدًا") recommendations.push("ابدأ برسالة تقدير لأن العميل مهم جدًا.");
+  if (customerStatusOf(row) === "متوقف") recommendations.push("العميل متوقف، اسأله بلطف عن سبب التوقف.");
+  if (["stopped", "decreased"].includes(row.purchase_frequency_status || "")) recommendations.push("العميل قلل شراءه، راجع لو كان فيه مشكلة أو صنف ناقص.");
+  if (row.customer_flags?.no_delivery) recommendations.push("لا تضف توصيل لهذا العميل.");
+  if (row.customer_flags?.no_substitutes) recommendations.push("لا تقترح بدائل إلا بعد موافقة العميل.");
+  if (row.customer_flags?.price_sensitive) recommendations.push("وضح السعر والقيمة قبل عرض الاختيارات.");
+  if (row.customer_flags?.prefers_call) recommendations.push("يفضل الاتصال بدل واتساب.");
+  if (row.needs_manager) recommendations.push("راجع آخر شكوى قبل التواصل.");
+  recommendations.push("حدد متابعة قادمة حتى لا يسقط العميل.");
+  return recommendations.slice(0, 5);
 }
 
 function ExceptionalFollowupModal({ branch, staffNames, userName, userId, onClose, onCreated }: {
@@ -959,12 +1262,164 @@ function ExceptionalFollowupModal({ branch, staffNames, userName, userId, onClos
   );
 }
 
+function DoctorFollowupRequestModal({ branch, staffNames, userName, userId, onClose, onCreated }: {
+  branch: string;
+  staffNames: string[];
+  userName: string;
+  userId: string;
+  onClose: () => void;
+  onCreated: (row: FollowupRow) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<CustomerMetric[]>([]);
+  const [selected, setSelected] = useState<CustomerMetric | null>(null);
+  const [loadingSearch, setLoadingSearch] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    branch: branch || BRANCHES[0] || "",
+    requestedBy: userName || "",
+    priority: "مهم",
+    reason: "تقدير عميل مهم",
+    preferredContactMethod: "أي طريقة",
+    personalityNote: "",
+    followupDatetime: todayInput(),
+    notes: "",
+  });
+
+  useEffect(() => {
+    if (!query.trim()) {
+      setResults([]);
+      return;
+    }
+    const timeout = window.setTimeout(async () => {
+      setLoadingSearch(true);
+      try {
+        setResults(await searchCustomerMetrics(query, form.branch));
+      } finally {
+        setLoadingSearch(false);
+      }
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [form.branch, query]);
+
+  const responsible = customerCareResponsibleForBranch(form.branch) || "خدمة العملاء";
+
+  const submit = async () => {
+    if (!selected) {
+      toast.error("اختيار العميل مطلوب");
+      return;
+    }
+    setSaving(true);
+    try {
+      const row = await createExceptionalFollowup({
+        customer: selected,
+        customerName: selected.customer_name || "عميل",
+        customerPhone: phoneOf({
+          id: selected.id,
+          customer_code: selected.customer_code,
+          customer_phone: selected.customer_phone,
+          phone: selected.phone,
+        } as FollowupRow),
+        branch: form.branch || selected.branch,
+        priority: form.priority,
+        requestType: "doctor_requested_followup",
+        followupReason: form.reason,
+        assignedDoctor: responsible,
+        followupDatetime: form.followupDatetime ? new Date(form.followupDatetime).toISOString() : null,
+        requestDetails: `طلب من: ${form.requestedBy || userName || "غير محدد"} | طريقة مفضلة: ${form.preferredContactMethod} | ملاحظة شخصية: ${form.personalityNote || "لا توجد"}`,
+        notes: form.notes,
+        createdBy: userId,
+        createdByName: form.requestedBy || userName,
+      });
+      await notifyCustomerServiceResponsible({
+        title: "طلب متابعة جديد",
+        message: `طلب متابعة جديد للعميل ${selected.customer_name || selected.customer_code} من ${form.requestedBy || userName}`,
+        type: "followup",
+        priority: form.priority === "عاجل" || form.priority === "مهم جدًا" ? "high" : "normal",
+        branch: form.branch || selected.branch,
+        target_type: "daily_followups",
+        target_id: row.id,
+        target_route: `/customer-service?followupId=${row.id}`,
+        requires_action: true,
+        created_by: userId,
+        created_by_name: form.requestedBy || userName,
+        metadata: {
+          requested_by: form.requestedBy || userName,
+          responsible_name: responsible,
+          customer_code: selected.customer_code,
+        },
+      });
+      toast.success("تم إنشاء طلب المتابعة");
+      onCreated(row);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "تعذر إنشاء طلب المتابعة");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal title="طلب متابعة خدمة عملاء" onClose={onClose}>
+      <div className="space-y-4">
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div className="relative">
+            <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input className="dawaa-input w-full pr-10" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ابحث بالاسم أو الكود أو الهاتف، مثال: *ا*س*لا*م" />
+          </div>
+          {loadingSearch && <div className="mt-2 text-sm font-bold text-slate-500">جاري البحث...</div>}
+          {results.length > 0 && (
+            <div className="mt-2 max-h-52 overflow-auto rounded-2xl border border-slate-200 bg-white">
+              {results.map((customer) => (
+                <button key={customer.id} type="button" className="block w-full border-b border-slate-100 p-3 text-right hover:bg-teal-50" onClick={() => {
+                  setSelected(customer);
+                  setForm((current) => ({ ...current, branch: customer.branch || current.branch }));
+                }}>
+                  <div className="font-black text-slate-950">{customer.customer_name || "عميل بدون اسم"}</div>
+                  <div className="text-xs font-bold text-slate-500">كود: {customer.customer_code || "بدون"} · هاتف: {phoneDisplay(customer.customer_phone, customer.customer_code)} · {customer.segment} · {customer.customer_status}</div>
+                </button>
+              ))}
+            </div>
+          )}
+          {selected && <div className="mt-2 rounded-xl bg-teal-50 p-2 text-xs font-black text-teal-800">تم اختيار: {selected.customer_name} · المسؤول: {customerCareResponsibleForBranch(form.branch) || "غير محدد"}</div>}
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="الفرع"><select className="dawaa-input w-full" value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value })}>{BRANCHES.map((b) => <option key={b}>{b}</option>)}</select></Field>
+          <Field label="الطبيب/الموظف الطالب"><input className="dawaa-input w-full" value={form.requestedBy} onChange={(e) => setForm({ ...form, requestedBy: e.target.value })} list="staff-names" /><datalist id="staff-names">{staffNames.map((name) => <option key={name} value={name} />)}</datalist></Field>
+          <Field label="مسؤول خدمة العملاء"><input className="dawaa-input w-full" value={responsible} readOnly /></Field>
+          <Field label="الأولوية"><select className="dawaa-input w-full" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>{["عادي", "مهم", "عاجل", "مهم جدًا"].map((item) => <option key={item}>{item}</option>)}</select></Field>
+          <Field label="سبب المتابعة"><select className="dawaa-input w-full" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })}>{["تقدير عميل مهم", "عميل محتاج متابعة", "شكوى", "صنف ناقص", "طلب خاص", "استكمال بيانات", "متابعة بعد زيارة الفرع", "أخرى"].map((item) => <option key={item}>{item}</option>)}</select></Field>
+          <Field label="طريقة التواصل المفضلة"><select className="dawaa-input w-full" value={form.preferredContactMethod} onChange={(e) => setForm({ ...form, preferredContactMethod: e.target.value })}>{["واتساب", "اتصال", "أي طريقة"].map((item) => <option key={item}>{item}</option>)}</select></Field>
+          <Field label="موعد المتابعة"><input type="datetime-local" className="dawaa-input w-full" value={form.followupDatetime} onChange={(e) => setForm({ ...form, followupDatetime: e.target.value })} /></Field>
+          <Field label="ملاحظة شخصية"><input className="dawaa-input w-full" value={form.personalityNote} onChange={(e) => setForm({ ...form, personalityNote: e.target.value })} placeholder="حساس للسعر، لا يحب البدائل..." /></Field>
+        </div>
+        <Field label="ملاحظات"><textarea className="dawaa-input min-h-24 w-full" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
+        <div className="flex gap-2">
+          <button type="button" className="dawaa-button-primary flex-1" onClick={submit} disabled={saving}>{saving ? "جاري الحفظ..." : "إرسال طلب المتابعة"}</button>
+          <button type="button" className="btn-secondary flex-1" onClick={onClose}>إلغاء</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function ResultModal({ row, userId, onClose, onSaved }: { row: FollowupRow; userId: string; onClose: () => void; onSaved: (row: FollowupRow) => void }) {
   const [saving, setSaving] = useState(false);
   const phone = phoneOf(row);
   const hasValidPhone = phone && isValidEgyptPhone(phone, row.customer_code);
   const activeFlags = getActiveCustomerFlags(row.customer_flags);
   const handlingNote = importantHandlingNote(row);
+  const script = buildCustomerCareScript({
+    customerName: row.customer_name || row.name,
+    segment: segmentOf(row),
+    customerStatus: customerStatusOf(row),
+    purchaseFrequencyStatus: row.purchase_frequency_status,
+    flags: row.customer_flags,
+    followupReason: row.followup_reason,
+    suggestedAction: row.suggested_action,
+    branch: row.branch,
+    responsibleName: responsibleOf(row),
+    hasValidPhone: Boolean(hasValidPhone),
+  });
   const [form, setForm] = useState({
     contact_method: row.contact_method || "اتصال",
     contact_status: row.contact_status || "تم التواصل",
@@ -982,9 +1437,14 @@ function ResultModal({ row, userId, onClose, onSaved }: { row: FollowupRow; user
     response_status: row.response_status || "",
   });
   const save = async (quickStatus?: string) => {
+    const status = quickStatus || form.contact_status || "تم";
+    const isCompleted = !["لم يرد", "مؤجل"].includes(status);
+    if (isCompleted && !form.followup_result.trim() && !form.followup_summary.trim()) {
+      toast.error("سجل نتيجة أو ملخص المتابعة قبل إغلاقها");
+      return;
+    }
     setSaving(true);
     try {
-      const status = quickStatus || form.contact_status || "تم";
       const updated = await updateFollowupResult(row.id, {
         contact_method: form.contact_method,
         contact_status: status,
@@ -1027,6 +1487,9 @@ function ResultModal({ row, userId, onClose, onSaved }: { row: FollowupRow; user
           <span>الحالة: {customerStatusOf(row)}</span>
           <span>متوسط شهري: {avgMonthlyOf(row) === null ? "غير متاح" : formatMoney(avgMonthlyOf(row))}</span>
           <span>تحذير التكرار: {row.purchase_frequency_status || "غير متاح"}</span>
+        </div>
+        <div className="mt-3 whitespace-pre-line rounded-xl border border-teal-200 bg-teal-50 p-3 text-xs font-bold leading-5 text-teal-800">
+          سكريبت مقترح: {script}
         </div>
         {activeFlags.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">

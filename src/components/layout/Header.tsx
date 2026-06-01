@@ -1,25 +1,41 @@
-import { Bell, Menu, Sun, Moon, Waves, Crown, Leaf, Droplets, Volume2, VolumeX } from "lucide-react";
+import { Bell, Menu, Sun, Moon, Waves, Crown, Leaf, Droplets, Volume2, VolumeX, CheckCheck, ExternalLink } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth, getSafeCurrentUserId } from "@/hooks/useAuth";
 import { useTheme, type PaletteId } from "@/hooks/useTheme";
 import { getCurrentCycle, getRemainingDays } from "@/lib/pharmacy-cycle";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { isSupabaseConfigured, supabase } from "@/lib/supabase";
-import { fetchSyntheticAlerts, markAllSyntheticRead, markSyntheticRead, type FeedNotification } from "@/lib/notificationFeed";
+import { isSupabaseConfigured } from "@/lib/supabase";
+import {
+  markAllNotificationsRead,
+  markNotificationRead,
+  normalizeNotification,
+  type AppNotification,
+} from "@/lib/notificationService";
 
 interface NotifItem {
   id: string;
-  user_id: string;
-  title: string;
-  body: string;
-  type: string;
-  read: boolean;
+  user_id?: string | null;
+  recipient_user_id?: string | null;
+  recipient_staff_id?: string | null;
+  recipient_role?: string | null;
+  title?: string | null;
+  body?: string | null;
+  message?: string | null;
+  description?: string | null;
+  type?: string | null;
+  priority?: string | null;
+  read?: boolean | null;
+  is_read?: boolean | null;
+  status?: string | null;
   route?: string | null;
+  target_route?: string | null;
   details?: string | Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
   target_type?: string | null;
   target_id?: string | null;
+  branch?: string | null;
   created_at: string;
 }
 
@@ -30,27 +46,6 @@ interface HeaderProps {
 
 const SOUND_KEY = "dawaa_notif_sound";
 
-function playNotificationBeep() {
-  const mode = localStorage.getItem(SOUND_KEY) || "soft";
-  if (mode === "off") return;
-  try {
-    const ctx = new AudioContext();
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.connect(g);
-    g.connect(ctx.destination);
-    o.frequency.value = mode === "distinct" ? 880 : 520;
-    g.gain.value = 0.08;
-    o.start();
-    setTimeout(() => {
-      o.stop();
-      ctx.close();
-    }, mode === "distinct" ? 220 : 140);
-  } catch {
-    /* ignore */
-  }
-}
-
 const PALETTES: { id: PaletteId; label: string; icon: typeof Waves }[] = [
   { id: "aqua", label: "فيروزي", icon: Droplets },
   { id: "royal", label: "ملكي", icon: Crown },
@@ -58,14 +53,38 @@ const PALETTES: { id: PaletteId; label: string; icon: typeof Waves }[] = [
 ];
 
 const notifColors: Record<string, string> = {
-  مكافأة: "bg-teal-500/15 border-teal-500/20",
-  خصم: "bg-red-500/15 border-red-500/20",
-  شكوى: "bg-amber-500/15 border-amber-500/20",
-  تذكير: "bg-blue-500/15 border-blue-500/20",
-  عام: "bg-slate-500/15 border-slate-500/20",
+  reward: "bg-emerald-50 border-emerald-200 text-emerald-700",
+  deduction: "bg-red-50 border-red-200 text-red-700",
+  task: "bg-blue-50 border-blue-200 text-blue-700",
+  followup: "bg-teal-50 border-teal-200 text-teal-700",
+  conversation_review: "bg-purple-50 border-purple-200 text-purple-700",
+  customer_alert: "bg-amber-50 border-amber-200 text-amber-700",
+  delivery: "bg-cyan-50 border-cyan-200 text-cyan-700",
+  system: "bg-slate-50 border-slate-200 text-slate-700",
 };
 
-function parseDetailsRoute(details: NotifItem["details"]) {
+function playNotificationBeep() {
+  const mode = localStorage.getItem(SOUND_KEY) || "soft";
+  if (mode === "off") return;
+  try {
+    const ctx = new AudioContext();
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.frequency.value = mode === "distinct" ? 880 : 520;
+    gain.gain.value = 0.08;
+    oscillator.start();
+    setTimeout(() => {
+      oscillator.stop();
+      ctx.close();
+    }, mode === "distinct" ? 220 : 140);
+  } catch {
+    // Browser audio may be blocked until user interaction.
+  }
+}
+
+function parseDetailsRoute(details: NotifItem["details"] | AppNotification["metadata"]) {
   if (!details) return null;
   if (typeof details === "object" && typeof details.route === "string") return details.route;
   if (typeof details !== "string") return null;
@@ -77,22 +96,42 @@ function parseDetailsRoute(details: NotifItem["details"]) {
   }
 }
 
-function inferNotificationRoute(n: Partial<NotifItem & FeedNotification>) {
+function inferNotificationRoute(n: Partial<NotifItem & AppNotification>) {
+  if (n.target_route) return n.target_route;
   if (n.route) return n.route;
-  const detailsRoute = parseDetailsRoute(n.details);
+  const detailsRoute = parseDetailsRoute(n.details) || parseDetailsRoute(n.metadata);
   if (detailsRoute) return detailsRoute;
 
-  const text = `${n.type || ""} ${n.title || ""} ${n.body || ""} ${n.target_type || ""}`.toLowerCase();
-  if (text.includes("متابعة") || text.includes("follow")) return "/customer-service";
-  if (text.includes("محادث") || text.includes("review")) return "/reviews";
-  if (text.includes("نقاط") || text.includes("خصم") || text.includes("مكاف")) return "/points";
-  if (text.includes("فاتور") || text.includes("invoice")) return "/invoices";
-  if (text.includes("شيفت")) return "/shift-performance";
-  if (text.includes("إذن") || text.includes("اذن") || text.includes("إجاز") || text.includes("اجاز")) return "/time-off";
-  if (text.includes("راكد")) return "/stagnant-medicines";
-  if (text.includes("حافز")) return "/incentive-medicines";
-  if (text.includes("عميل")) return "/customers";
-  return "/activity-log";
+  const text = `${n.type || ""} ${n.title || ""} ${n.body || ""} ${n.message || ""} ${n.target_type || ""}`.toLowerCase();
+  if (text.includes("follow") || text.includes("متابعة")) return "/customer-service";
+  if (text.includes("review") || text.includes("تقييم")) return "/reviews";
+  if (text.includes("deduction") || text.includes("reward") || text.includes("خصم") || text.includes("مكاف")) return "/points";
+  if (text.includes("invoice") || text.includes("فاتور")) return "/invoices";
+  if (text.includes("shift") || text.includes("شيفت")) return "/shift-performance";
+  if (text.includes("stagnant") || text.includes("راكد")) return "/stagnant-medicines";
+  if (text.includes("delivery") || text.includes("دليفري") || text.includes("توصيل")) return "/delivery";
+  if (text.includes("customer") || text.includes("عميل")) return "/customers";
+  return "/operations-center";
+}
+
+function canSeeNotification(item: AppNotification, user: ReturnType<typeof useAuth>["user"]) {
+  if (!user) return false;
+  const safeUserId = getSafeCurrentUserId();
+  const role = user.role || "";
+  const isAdmin = ["مدير عام", "المدير العام", "admin", "أدمن"].includes(role);
+  const isBranchManager = role === "مدير فرع";
+
+  if (isAdmin) return true;
+  if (item.user_id && (item.user_id === user.id || item.user_id === safeUserId)) return true;
+  if (item.recipient_user_id && (item.recipient_user_id === user.id || item.recipient_user_id === safeUserId)) return true;
+  if (item.recipient_staff_id && item.recipient_staff_id === user.staffId) return true;
+  if (item.recipient_role && item.recipient_role === role) return true;
+  if (isBranchManager && item.branch && item.branch === user.branch) return true;
+  return !item.user_id && !item.recipient_user_id && !item.recipient_staff_id && !item.recipient_role && (!item.branch || item.branch === user.branch);
+}
+
+function isUrgent(item: AppNotification) {
+  return /urgent|critical|high|عاجل|حرج|خطر|مرتفع/i.test(String(item.priority || item.type || ""));
 }
 
 export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
@@ -108,129 +147,84 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
   const { data: notifications, refetch } = useSupabaseQuery<NotifItem>({
     table: "notifications",
     orderBy: { column: "created_at", ascending: false },
-    limit: 40,
+    limit: 80,
     realtimeEnabled: true,
   });
 
-  const [synthetic, setSynthetic] = useState<FeedNotification[]>([]);
-
-  const loadSynthetic = useCallback(async () => {
-    const s = await fetchSyntheticAlerts();
-    setSynthetic(s);
-  }, []);
-
-  useEffect(() => {
-    loadSynthetic();
-    const t = window.setInterval(loadSynthetic, 120000);
-    return () => window.clearInterval(t);
-  }, [loadSynthetic]);
-
-  const userNotifs = useMemo(
-    () => notifications.filter((n) => n.user_id === user?.id || n.user_id === getSafeCurrentUserId()),
-    [notifications, user?.id],
-  );
-
   const merged = useMemo(() => {
-    const dbMapped: FeedNotification[] = userNotifs.map((n) => ({
-      id: n.id,
-      title: n.title,
-      body: n.body,
-      type: n.type,
-      read: n.read,
-      created_at: n.created_at,
-      route: inferNotificationRoute(n),
-      synthetic: false,
-    }));
-    const byId = new Map<string, FeedNotification>();
-    [...synthetic, ...dbMapped].forEach((item) => {
-      byId.set(item.id, item);
-    });
-    return [...byId.values()].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  }, [userNotifs, synthetic]);
+    return notifications
+      .map((row) => {
+        const item = normalizeNotification(row as unknown as Record<string, unknown>);
+        return { ...item, route: inferNotificationRoute(item) };
+      })
+      .filter((item) => canSeeNotification(item, user))
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }, [notifications, user]);
 
-  const unreadCount = useMemo(
-    () => merged.filter((n) => !n.read).length,
-    [merged],
-  );
+  const unreadCount = useMemo(() => merged.filter((n) => !n.read && !n.is_read).length, [merged]);
 
   useEffect(() => {
     if (prevUnread.current === null) {
       prevUnread.current = unreadCount;
       return;
     }
-    if (unreadCount > prevUnread.current) playNotificationBeep();
+    const newest = merged[0];
+    if (unreadCount > prevUnread.current && newest && isUrgent(newest)) playNotificationBeep();
     prevUnread.current = unreadCount;
-  }, [unreadCount]);
+  }, [merged, unreadCount]);
 
   const markAllRead = async () => {
-    if (isSupabaseConfigured && user?.id) {
-      const safeUserId = getSafeCurrentUserId();
-      const orCondition = safeUserId 
-        ? `user_id.eq.${user.id},user_id.eq.${safeUserId}`
-        : `user_id.eq.${user.id}`;
-      await supabase
-        .from("notifications")
-        .update({ read: true })
-        .or(orCondition)
-        .eq("read", false);
-    }
-    markAllSyntheticRead(synthetic.map((s) => s.id));
+    await markAllNotificationsRead({ userId: user?.id, staffId: user?.staffId, role: user?.role, branch: user?.branch });
     refetch();
-    await loadSynthetic();
   };
 
-  const markOneRead = async (n: FeedNotification) => {
-    if (n.synthetic) {
-      markSyntheticRead(n.id);
-      await loadSynthetic();
-      return;
-    }
-    if (isSupabaseConfigured) {
-      await supabase.from("notifications").update({ read: true }).eq("id", n.id);
+  const markOneRead = async (n: AppNotification) => {
+    if (isSupabaseConfigured && n.id) {
+      await markNotificationRead(n.id);
       refetch();
     }
   };
 
-  const openNotification = async (n: FeedNotification) => {
+  const openNotification = async (n: AppNotification) => {
     await markOneRead(n);
     setShowNotifs(false);
     navigate(n.route || inferNotificationRoute(n));
   };
 
-  const setSound = (m: "off" | "soft" | "distinct") => {
-    localStorage.setItem(SOUND_KEY, m);
-    setSoundMode(m);
+  const setSound = (mode: "off" | "soft" | "distinct") => {
+    localStorage.setItem(SOUND_KEY, mode);
+    setSoundMode(mode);
   };
 
   return (
-    <header className="h-14 bg-[#151f34]/95 backdrop-blur border-b border-[#2d4063] flex items-center px-4 gap-3 sticky top-0 z-30">
-      <button type="button" onClick={onMobileMenuOpen} className="lg:hidden p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/5">
+    <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-slate-200 bg-white/95 px-4 shadow-sm backdrop-blur" dir="rtl">
+      <button type="button" onClick={onMobileMenuOpen} className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 lg:hidden">
         <Menu size={20} />
       </button>
-      <h1 className="text-white font-bold text-base flex-1 truncate">{title}</h1>
+      <h1 className="flex-1 truncate text-base font-black text-slate-950">{title}</h1>
 
       {!isSupabaseConfigured && (
-        <div className="hidden sm:flex items-center gap-2 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-1.5">
-          <span className="w-2 h-2 rounded-full bg-amber-400" />
-          <span className="text-amber-300 text-xs font-medium">وضع تجريبي بدون قاعدة بيانات</span>
+        <div className="hidden items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 sm:flex">
+          <span className="h-2 w-2 rounded-full bg-amber-400" />
+          <span className="text-xs font-bold text-amber-700">قاعدة البيانات غير مفعلة</span>
         </div>
       )}
 
-      <div className="hidden md:flex items-center gap-2 bg-teal-500/10 border border-teal-500/20 rounded-xl px-3 py-1.5">
-        <div className="w-2 h-2 rounded-full bg-teal-400 animate-pulse-soft" />
-        <span className="text-teal-300 text-xs font-medium">{cycle.shortLabel}</span>
-        <span className="text-slate-400 text-xs">({remaining} يوم)</span>
+      <div className="hidden items-center gap-2 rounded-xl border border-teal-100 bg-teal-50 px-3 py-1.5 md:flex">
+        <span className="h-2 w-2 rounded-full bg-teal-500" />
+        <span className="text-xs font-black text-teal-700">{cycle.shortLabel}</span>
+        <span className="text-xs text-slate-500">({remaining} يوم)</span>
       </div>
 
-      <div className="hidden sm:flex items-center gap-0.5 rounded-xl border border-[#2d4063] bg-white/5 p-1" title="لوحة الألوان">
+      <div className="hidden items-center gap-0.5 rounded-xl border border-slate-200 bg-slate-50 p-1 sm:flex" title="لوحة الألوان">
         {PALETTES.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             type="button"
             onClick={() => setPalette(id)}
             className={cn(
-              "flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold transition-all",
-              palette === id ? "bg-white/15 text-white border border-white/10" : "text-slate-500 hover:text-slate-200",
+              "flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-bold transition-all",
+              palette === id ? "border border-teal-100 bg-white text-teal-700 shadow-sm" : "text-slate-500 hover:bg-white hover:text-slate-800",
             )}
             aria-pressed={palette === id}
           >
@@ -240,24 +234,12 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
         ))}
       </div>
 
-      <div className="theme-switcher flex items-center gap-1 rounded-xl border border-[#2d4063] bg-white/5 p-1">
-        <button
-          type="button"
-          onClick={() => setTheme("light")}
-          className={cn("theme-option", theme === "light" && "theme-option-active")}
-          title="الوضع الفاتح"
-          aria-pressed={theme === "light"}
-        >
+      <div className="theme-switcher flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1">
+        <button type="button" onClick={() => setTheme("light")} className={cn("theme-option", theme === "light" && "theme-option-active")} title="الوضع الفاتح" aria-pressed={theme === "light"}>
           <Sun size={15} />
           <span className="hidden sm:inline">فاتح</span>
         </button>
-        <button
-          type="button"
-          onClick={() => setTheme("dark")}
-          className={cn("theme-option", theme === "dark" && "theme-option-active")}
-          title="الوضع الغامق"
-          aria-pressed={theme === "dark"}
-        >
+        <button type="button" onClick={() => setTheme("dark")} className={cn("theme-option", theme === "dark" && "theme-option-active")} title="الوضع الغامق" aria-pressed={theme === "dark"}>
           <Moon size={15} />
           <span className="hidden sm:inline">غامق</span>
         </button>
@@ -266,90 +248,75 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
       <div className="relative">
         <button
           type="button"
-          onClick={() => setShowNotifs(!showNotifs)}
-          className="relative p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-all"
+          onClick={() => setShowNotifs((value) => !value)}
+          className="relative rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
           aria-label="الإشعارات"
         >
           <Bell size={18} />
           {merged.length > 0 && (
-            <span
-              className={cn(
-                "absolute -top-0.5 -right-0.5 text-navy-900 text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center border border-[#0f1923]",
-                unreadCount > 0 ? "bg-teal-400" : "bg-slate-500 text-white",
-              )}
-            >
+            <span className={cn("absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border border-white px-1 text-[10px] font-black", unreadCount > 0 ? "bg-teal-500 text-white" : "bg-slate-300 text-slate-700")}>
               {unreadCount > 0 ? (unreadCount > 99 ? "99+" : unreadCount) : merged.length > 99 ? "99+" : merged.length}
             </span>
           )}
         </button>
 
         {showNotifs && (
-          <div className="absolute left-0 top-12 w-80 sm:w-96 bg-[#1B2B4B] border border-[#2d4063] rounded-2xl shadow-2xl shadow-black/40 z-50 overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-[#2d4063] gap-2 flex-wrap">
-              <span className="text-white font-semibold text-sm">الإشعارات</span>
-              <div className="flex items-center gap-2 flex-wrap">
-                <div className="flex items-center gap-1 rounded-lg border border-[#2d4063] p-0.5">
-                  <button
-                    type="button"
-                    className={cn("p-1.5 rounded-md", soundMode === "off" && "bg-white/10")}
-                    title="بدون صوت"
-                    onClick={() => setSound("off")}
-                  >
+          <div className="absolute left-0 top-12 z-50 w-80 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-200/80 sm:w-96">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+              <div>
+                <div className="text-sm font-black text-slate-950">الإشعارات</div>
+                <div className="text-xs font-semibold text-slate-500">{unreadCount} غير مقروء</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+                  <button type="button" className={cn("rounded-md p-1.5 text-slate-500", soundMode === "off" && "bg-white text-slate-900 shadow-sm")} title="بدون صوت" onClick={() => setSound("off")}>
                     <VolumeX size={14} />
                   </button>
-                  <button
-                    type="button"
-                    className={cn("p-1.5 rounded-md", soundMode === "soft" && "bg-white/10")}
-                    title="تنبيه خفيف"
-                    onClick={() => setSound("soft")}
-                  >
+                  <button type="button" className={cn("rounded-md p-1.5 text-slate-500", soundMode === "soft" && "bg-white text-slate-900 shadow-sm")} title="تنبيه خفيف" onClick={() => setSound("soft")}>
                     <Volume2 size={14} className="opacity-70" />
                   </button>
-                  <button
-                    type="button"
-                    className={cn("p-1.5 rounded-md", soundMode === "distinct" && "bg-white/10")}
-                    title="نغمة أوضح"
-                    onClick={() => {
-                      setSound("distinct");
-                      playNotificationBeep();
-                    }}
-                  >
+                  <button type="button" className={cn("rounded-md p-1.5 text-slate-500", soundMode === "distinct" && "bg-white text-slate-900 shadow-sm")} title="نغمة أوضح" onClick={() => { setSound("distinct"); playNotificationBeep(); }}>
                     <Volume2 size={14} />
                   </button>
                 </div>
                 {unreadCount > 0 && (
-                  <button type="button" onClick={markAllRead} className="text-teal-400 text-xs font-semibold">
-                    قراءة الكل
+                  <button type="button" onClick={markAllRead} className="inline-flex items-center gap-1 text-xs font-black text-teal-700">
+                    <CheckCheck size={14} /> قراءة الكل
                   </button>
                 )}
               </div>
             </div>
-            <div className="max-h-80 overflow-y-auto">
+            <div className="max-h-96 overflow-y-auto">
               {merged.length === 0 ? (
-                <div className="py-8 text-center text-slate-400 text-sm">لا توجد إشعارات مسجلة حاليًا</div>
+                <div className="py-8 text-center text-sm font-bold text-slate-500">لا توجد إشعارات مسجلة حاليًا</div>
               ) : (
-                merged.slice(0, 14).map((n) => (
+                merged.slice(0, 10).map((n) => (
                   <button
                     key={n.id}
                     type="button"
                     onClick={() => void openNotification(n)}
-                    className={cn(
-                      "w-full text-right px-4 py-3 border-b border-[#2d4063]/50 last:border-0 hover:bg-white/5 transition-colors",
-                      !n.read ? "bg-teal-500/5" : "",
-                    )}
+                    className={cn("w-full border-b border-slate-100 px-4 py-3 text-right transition last:border-0 hover:bg-slate-50", !n.read && !n.is_read ? "bg-teal-50/50" : "")}
                   >
                     <div className="flex items-start gap-2.5">
-                      <span className={cn("text-xs px-2 py-0.5 rounded-full border mt-0.5 shrink-0", notifColors[n.type] || notifColors["عام"])}>{n.type}</span>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-white text-xs font-semibold">{n.title}</div>
-                        <div className="text-slate-400 text-xs mt-0.5 leading-relaxed">{n.body}</div>
+                      <span className={cn("mt-0.5 shrink-0 rounded-full border px-2 py-0.5 text-xs font-black", isUrgent(n) ? "border-red-200 bg-red-50 text-red-700" : notifColors[String(n.type)] || notifColors.system)}>
+                        {String(n.priority || n.type || "تنبيه")}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1 text-xs font-black text-slate-950">
+                          <span className="truncate">{n.title}</span>
+                          <ExternalLink size={12} className="shrink-0 text-slate-400" />
+                        </div>
+                        <div className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-slate-500">{n.body || n.message}</div>
                       </div>
-                      {!n.read && <div className="w-2 h-2 rounded-full bg-teal-400 mt-1 flex-shrink-0" />}
+                      {!n.read && !n.is_read && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-teal-500" />}
                     </div>
                   </button>
                 ))
               )}
             </div>
+            <button type="button" onClick={() => { setShowNotifs(false); navigate("/operations-center"); }} className="w-full border-t border-slate-100 bg-slate-50 px-4 py-3 text-center text-xs font-black text-teal-700 hover:bg-teal-50">
+              فتح مركز التنبيهات
+            </button>
           </div>
         )}
       </div>

@@ -216,6 +216,123 @@ export function buildCustomerServiceWhatsAppMessage(input: {
   return lines.join("\n");
 }
 
+export type CustomerCareScriptType =
+  | "friendly_general"
+  | "vip"
+  | "stopped"
+  | "reduced"
+  | "price_sensitive"
+  | "no_substitutes"
+  | "complaint_manager"
+  | "periodic_reminder"
+  | "usage_explanation"
+  | "data_completion";
+
+export function chooseCustomerCareScriptType(input: {
+  segment?: string | null;
+  customerStatus?: string | null;
+  purchaseFrequencyStatus?: string | null;
+  flags?: CustomerFlagsObject | any;
+  hasValidPhone?: boolean;
+}): CustomerCareScriptType {
+  const flags = parseCustomerFlags(input.flags);
+  if (!input.hasValidPhone) return "data_completion";
+  if (hasCustomerFlag(flags, "needs_manager") || hasCustomerFlag(flags, "complains_often")) return "complaint_manager";
+  if (hasCustomerFlag(flags, "no_substitutes")) return "no_substitutes";
+  if (hasCustomerFlag(flags, "price_sensitive")) return "price_sensitive";
+  if (hasCustomerFlag(flags, "needs_usage_explanation")) return "usage_explanation";
+  if (hasCustomerFlag(flags, "needs_periodic_reminder")) return "periodic_reminder";
+  if (input.customerStatus === "متوقف") return "stopped";
+  if (["decreased", "انخفض الشراء", "قلل شراءه"].includes(String(input.purchaseFrequencyStatus || ""))) return "reduced";
+  if (input.segment === "مهم جدًا" || hasCustomerFlag(flags, "vip")) return "vip";
+  return "friendly_general";
+}
+
+export function buildCustomerCareScript(input: {
+  customerName?: string | null;
+  segment?: string | null;
+  customerStatus?: string | null;
+  purchaseFrequencyStatus?: string | null;
+  flags?: CustomerFlagsObject | any;
+  followupReason?: string | null;
+  suggestedAction?: string | null;
+  lastPurchaseDate?: string | null;
+  branch?: string | null;
+  responsibleName?: string | null;
+  scriptType?: CustomerCareScriptType | null;
+  hasValidPhone?: boolean;
+}) {
+  const flags = parseCustomerFlags(input.flags);
+  const name = input.customerName || "حضرتك";
+  const scriptType = input.scriptType || chooseCustomerCareScriptType(input);
+  const intro = `أهلاً بحضرتك يا أستاذ/ة ${name} 🌿`;
+  const scripts: Record<CustomerCareScriptType, string[]> = {
+    friendly_general: [
+      intro,
+      "مع حضرتك صيدليات دواء، كنا بنطمن على حضرتك ونشوف لو فيه أي صنف محتاجه أو أي خدمة نقدر نساعدك فيها.",
+      "وجود حضرتك يهمنا، ودايمًا بنحاول نوفر لحضرتك أفضل خدمة.",
+    ],
+    vip: [
+      intro,
+      "مع حضرتك صيدليات دواء، بنطمن على حضرتك لأنك من عملائنا المميزين، ولو فيه أي احتياج أو ملاحظة نقدر نساعدك فيها فورًا إن شاء الله.",
+      "رضا حضرتك مهم جدًا لينا.",
+    ],
+    stopped: [
+      intro,
+      "مع حضرتك صيدليات دواء، لاحظنا إن حضرتك بقالك فترة ما طلبتش مننا، فحبينا نطمن عليك ونعرف لو كان فيه أي مشكلة أو أي صنف محتاجه.",
+      "لو فيه أي ملاحظة على آخر تعامل معانا، يهمنا نعرفها ونحلها لحضرتك.",
+    ],
+    reduced: [
+      intro,
+      "مع حضرتك صيدليات دواء، كنا بنطمن على حضرتك ونشوف لو فيه أي سبب خلى طلبات حضرتك تقل الفترة دي.",
+      "لو فيه صنف ناقص أو تجربة مش مريحة حصلت، يهمنا نساعدك ونحسنها فورًا.",
+    ],
+    price_sensitive: [
+      intro,
+      "مع حضرتك صيدليات دواء، نقدر نرشح لحضرتك أنسب اختيار من حيث الجودة والسعر، ونوضح كل التفاصيل قبل أي طلب عشان حضرتك تختار براحتك.",
+    ],
+    no_substitutes: [
+      intro,
+      "مع حضرتك صيدليات دواء، لو حضرتك محتاج صنف معين هنراجع توفره الأول، ولو مش متوفر مش هنقترح أي بديل إلا بعد الرجوع لحضرتك والتأكيد عليك.",
+    ],
+    complaint_manager: [
+      intro,
+      "مع حضرتك صيدليات دواء، بنعتذر لحضرتك لو كان فيه أي تقصير قبل كده.",
+      "يهمنا نتابع مع حضرتك بنفسنا ونحل أي ملاحظة، لأن رضا حضرتك وثقتك فينا مهمين جدًا.",
+    ],
+    periodic_reminder: [
+      intro,
+      "مع حضرتك صيدليات دواء، بنفكّر حضرتك لو فيه أي صنف بتحتاجه بشكل دوري أو أي طلب تحب نجهزه لحضرتك.",
+      "إحنا في خدمتك في أي وقت.",
+    ],
+    usage_explanation: [
+      intro,
+      "مع حضرتك صيدليات دواء، لو حضرتك محتاج توضيح لطريقة استخدام أي صنف أو الجرعة المناسبة، إحنا جاهزين نساعدك بكل التفاصيل.",
+    ],
+    data_completion: [
+      intro,
+      "مع حضرتك صيدليات دواء، بنحدث بيانات العملاء عشان نقدر نقدم خدمة أسرع وأدق.",
+      "ممكن حضرتك تأكد لنا رقم التواصل والعنوان المناسب لو احتجنا نوصل لحضرتك؟",
+    ],
+  };
+
+  const lines = [...scripts[scriptType]];
+  if (input.followupReason && scriptType === "friendly_general") {
+    lines.push(`سبب تواصلنا مع حضرتك: ${input.followupReason}.`);
+  }
+  if (hasCustomerFlag(flags, "needs_special_handling")) {
+    lines.push("هنخلي التعامل هادي وواضح وبالطريقة اللي تريح حضرتك.");
+  }
+  if (hasCustomerFlag(flags, "no_delivery")) {
+    lines.push("ونقدر نجهز طلب حضرتك للاستلام من الصيدلية لو ده أنسب لحضرتك.");
+  }
+  if (hasCustomerFlag(flags, "prefers_call")) {
+    lines.push("ولو تحب نكلم حضرتك تليفونيًا، نقدر نرتب ده في الوقت المناسب.");
+  }
+  lines.push("صيدليات دواء دايمًا في خدمتك 🌿");
+  return lines.join("\n");
+}
+
 /**
  * Check if customer prefers call over WhatsApp
  */

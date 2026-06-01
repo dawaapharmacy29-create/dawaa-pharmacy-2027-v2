@@ -24,6 +24,7 @@ import { toNumber } from "@/lib/utils";
 import { mergeStaffChoices, reviewerChoices } from "@/lib/staffFallback";
 import { TABLES } from "@/lib/supabaseTables";
 import { canonicalMaxPoints, canonicalSnapshotPoints } from "@/lib/pointsLedger";
+import { notifyEmployee } from "@/lib/notificationService";
 
 interface StaffOpt {
   id: string;
@@ -418,6 +419,30 @@ export default function Reviews() {
         user_role: currentUserProfile.role,
         target_type: "conversation_review",
         target_id: reviewRowId || "",
+      });
+
+      await notifyEmployee({
+        title: result.finalScore < 70 ? "تقييم محادثة يحتاج مراجعة" : "تم حفظ تقييم محادثة",
+        message: result.finalScore < 70
+          ? `درجتك ${result.finalScore}/100. يرجى مراجعة التقييم لتجنب تكرار الخطأ.`
+          : `تقييم المحادثة ${result.finalScore}/100. ${result.finalScore >= 90 ? "أداء ممتاز." : "راجع الملاحظات للتحسين."}`,
+        type: "conversation_review",
+        priority: result.finalScore < 70 ? "high" : "normal",
+        recipient_staff_id: selectedStaff.id,
+        branch: selectedStaff.branch,
+        target_type: "conversation_review",
+        target_id: reviewRowId || "",
+        target_route: reviewRowId ? `/reviews?id=${reviewRowId}` : "/reviews",
+        requires_action: result.finalScore < 70,
+        created_by: currentUserProfile.id,
+        created_by_name: currentUserProfile.name,
+        metadata: {
+          staff_name: selectedStaff.name,
+          score: result.finalScore,
+          points_impact: repeatedDoctorImpact,
+          positive_note: result.mainPositiveReason,
+          improvement_note: result.mainNegativeReason,
+        },
       });
 
       toast.success("تم حفظ تقييم المحادثة وتحديث نقاط الدكتور بنجاح");
