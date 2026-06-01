@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useEscapeKey } from "@/hooks/useEscapeKey";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import type { EvaluationRuleDef } from "@/lib/evaluationRulesCatalog";
@@ -84,6 +85,8 @@ export function AddPointsModal({
   const [ruleCode, setRuleCode] = useState("");
   const [note, setNote] = useState("");
   const [adminDelta, setAdminDelta] = useState("0");
+
+  useEscapeKey(onClose, true);
 
   const selectableStaff = useMemo(() => staffList.filter(isSelectableStaff), [staffList]);
   const selectedStaff = selectableStaff.find((s) => s.id === staffId);

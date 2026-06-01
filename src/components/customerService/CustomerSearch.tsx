@@ -3,6 +3,7 @@ import { Search, User, Phone, Building2, X } from "lucide-react";
 import { getCustomers, type GetCustomersOptions } from "@/lib/api/customers";
 import { cleanEgyptianPhone, displayEgyptianPhone } from "@/lib/whatsapp";
 import { normalizeBranchName } from "@/lib/branch";
+import { normalizePhone, normalizeArabicText } from "@/lib/customerSearch";
 import type { Customer } from "@/types/database";
 import { toast } from "sonner";
 
@@ -45,17 +46,19 @@ export default function CustomerSearch({ onSelect, onUnregistered, branch, place
         
         // Determine match type for each result
         const searchResults: SearchResult[] = customers.map(customer => {
-          const q = query.toLowerCase().replace(/\*/g, "");
-          const code = String(customer.customer_code || "").toLowerCase();
-          const name = String(customer.name || "").toLowerCase();
-          const phone = cleanEgyptianPhone(customer.phone);
-          const whatsapp = cleanEgyptianPhone((customer as any).whatsapp_phone || "");
-          
+          const normalizedQuery = normalizeArabicText(query.replace(/\*/g, ""));
+          const code = normalizeArabicText(String(customer.customer_code || ""));
+          const name = normalizeArabicText(String(customer.name || ""));
+          const phone = normalizePhone(customer.phone);
+          const whatsapp = normalizePhone((customer as any).whatsapp_phone || "");
+          const phoneQuery = normalizePhone(query);
+
           let matchType: SearchResult["matchType"] = "name";
-          if (code === q || code.startsWith(q)) matchType = "code";
-          else if (phone.includes(q) || phone.startsWith(q)) matchType = "phone";
-          else if (whatsapp.includes(q) || whatsapp.startsWith(q)) matchType = "whatsapp";
-          
+          if (code === normalizedQuery || code.startsWith(normalizedQuery)) matchType = "code";
+          else if (name.includes(normalizedQuery)) matchType = "name";
+          else if (phone.includes(phoneQuery) || phone.startsWith(phoneQuery)) matchType = "phone";
+          else if (whatsapp.includes(phoneQuery) || whatsapp.startsWith(phoneQuery)) matchType = "whatsapp";
+
           return { customer, matchType };
         });
 

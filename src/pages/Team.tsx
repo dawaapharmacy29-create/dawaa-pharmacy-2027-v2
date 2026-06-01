@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
+import { useEscapeKey } from "@/hooks/useEscapeKey";
 import { Search, Plus, Phone, Edit2, UserCheck, Loader2, Eye, ClipboardList } from "lucide-react";
 import { useSupabaseQuery, logActivity } from "@/hooks/useSupabaseQuery";
 import { isCurrentlyOnShift, matchesOrderedSegments, percent } from "@/lib/utils";
@@ -305,6 +306,7 @@ interface DaySchedule {
 
 function EmployeeModal({ employee, onClose, onSaved, user }: { employee?: Employee; onClose: () => void; onSaved: () => void; user: User | null }) {
   const [saving, setSaving] = useState(false);
+  useEscapeKey(onClose, true);
   const [form, setForm] = useState({
     name: "", username: "", password: "", account_status: "active", phone: "", role: "صيدلاني", branch: "فرع شكري",
     default_shift_start: "09:00", default_shift_end: "19:00", notes: "",
@@ -582,6 +584,7 @@ function RankingList({ title, rows }: { title: string; rows: Array<Employee & { 
 }
 
 function EmployeeDetailsModal({ employee, schedules, transactions, onClose }: { employee: Employee; schedules: ShiftSchedule[]; transactions: EmployeeTransaction[]; onClose: () => void }) {
+  useEscapeKey(onClose, true);
   const cycle = getCurrentCycle();
   const pointRecords = transactions as PointLedgerRecord[];
   const points = effectiveCyclePoints(employee, pointRecords, cycle);

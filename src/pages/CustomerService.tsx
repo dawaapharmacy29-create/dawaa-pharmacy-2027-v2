@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEscapeKey } from "@/hooks/useEscapeKey";
 import {
   AlertTriangle,
   CalendarClock,
@@ -1590,6 +1591,8 @@ function PostponeModal({ row, userId, onClose, onSaved }: { row: FollowupRow; us
 }
 
 function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+  useEscapeKey(onClose, true);
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-panel max-w-4xl" onClick={(event) => event.stopPropagation()}>

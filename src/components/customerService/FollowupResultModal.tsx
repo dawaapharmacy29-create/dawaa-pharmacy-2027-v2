@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useEscapeKey } from "@/hooks/useEscapeKey";
 import { X, Star, CheckCircle2, AlertTriangle, PhoneCall, MessageSquare, ShoppingBag, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 import type { DailyFollowup } from "@/types/database";
@@ -35,6 +36,7 @@ const RESULT_OPTIONS = [
 ];
 
 export default function FollowupResultModal({ followup, onClose, onSave }: FollowupResultModalProps) {
+  useEscapeKey(onClose, true);
   const [result, setResult] = useState("");
   const [notes, setNotes] = useState("");
   const [qualityRating, setQualityRating] = useState(5);

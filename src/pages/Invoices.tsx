@@ -1,4 +1,5 @@
 ﻿import { useEffect, useMemo, useState, useRef, useCallback } from "react";
+import { useEscapeKey } from "@/hooks/useEscapeKey";
 import { Upload, FileSpreadsheet, AlertCircle, CheckCircle, Download, Loader2, XCircle, FileCheck, RefreshCw, ShieldAlert, Trash2, Pencil, Save, BarChart3 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { BRANCHES } from "@/lib/constants";
@@ -75,6 +76,10 @@ export default function Invoices() {
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [editInvoice, setEditInvoice] = useState<ManagedInvoiceRow | null>(null);
   const [editForm, setEditForm] = useState<InvoiceEditForm | null>(null);
+  useEscapeKey(() => {
+    setEditInvoice(null);
+    setEditForm(null);
+  }, Boolean(editInvoice && editForm));
 
   const loadManagedInvoices = useCallback(async () => {
     if (!isAdmin) return;
@@ -753,8 +758,11 @@ export default function Invoices() {
       )}
 
       {isAdmin && editInvoice && editForm && (
-        <div className="modal-backdrop">
-          <div className="modal-panel max-w-3xl p-6">
+        <div className="modal-backdrop" onClick={() => {
+          setEditInvoice(null);
+          setEditForm(null);
+        }}>
+          <div className="modal-panel max-w-3xl p-6" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-start justify-between gap-3 mb-5">
               <div>
                 <div className="section-title">تعديل فاتورة</div>

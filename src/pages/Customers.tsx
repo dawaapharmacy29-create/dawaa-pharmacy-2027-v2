@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEscapeKey } from "@/hooks/useEscapeKey";
 import {
   AlertTriangle,
   ChevronLeft,
@@ -561,6 +562,8 @@ function CustomerDetailsModal({ customer, user, onClose }: { customer: CustomerM
       setSaveLoading(false);
     }
   };
+
+  useEscapeKey(onClose, true);
 
   const toggleFlag = (key: string) => {
     setCustomerFlags((current) => toggleCustomerFlag(current, key));

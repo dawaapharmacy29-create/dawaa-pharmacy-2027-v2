@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ElementType, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   BellRing,
@@ -193,6 +193,8 @@ export default function ExecutiveDashboard2027() {
     return [...values];
   }, [summary]);
 
+  const navigate = useNavigate();
+
   const dailyTrend = useMemo(() => {
     const byDay = new Map<string, { saleDate: string; netTotal: number; invoicesCount: number }>();
     for (const row of summary?.dailySales || []) {
@@ -295,8 +297,26 @@ export default function ExecutiveDashboard2027() {
         <KpiCard label="عدد الفواتير" metric={normalizedKpis?.invoicesCount} formatter="count" subtitle="فواتير الفترة المحددة" icon={ShoppingCart} loading={loading} empty={!hasInvoiceRows} />
         <KpiCard label="متوسط الفاتورة" metric={normalizedKpis?.avgInvoice} formatter="money" subtitle="متوسط صافي الفاتورة" icon={TrendingUp} loading={loading} empty={!hasInvoiceRows} />
         <KpiCard label="العملاء المشترين" metric={normalizedKpis?.uniqueCustomers} formatter="count" subtitle="عملاء لديهم شراء" icon={Users} loading={loading} empty={!hasInvoiceRows} />
-        <KpiCard label="المتابعات المتأخرة" metric={normalizedKpis?.overdueFollowups} formatter="count" subtitle="تحتاج تدخل إداري" icon={AlertTriangle} loading={loading} tone="danger" />
-        <KpiCard label="التنبيهات العاجلة" metric={normalizedKpis?.urgentNotifications} formatter="count" subtitle="تنبيهات عالية الأولوية" icon={BellRing} loading={loading} tone={urgentNotifications ? "danger" : "teal"} />
+        <KpiCard
+          label="المتابعات المتأخرة"
+          metric={normalizedKpis?.overdueFollowups}
+          formatter="count"
+          subtitle="تحتاج تدخل إداري"
+          icon={AlertTriangle}
+          loading={loading}
+          tone="danger"
+          onClick={() => navigate("/customer-service")}
+        />
+        <KpiCard
+          label="التنبيهات العاجلة"
+          metric={normalizedKpis?.urgentNotifications}
+          formatter="count"
+          subtitle="تنبيهات عالية الأولوية"
+          icon={BellRing}
+          loading={loading}
+          tone={urgentNotifications ? "danger" : "teal"}
+          onClick={() => navigate("/customer-service")}
+        />
       </section>
 
       <Panel title="مركز القرار السريع" source="RPC + summary views + lightweight counts" featured>
@@ -386,6 +406,7 @@ function KpiCard({
   loading,
   empty,
   tone = "teal",
+  onClick,
 }: {
   label: string;
   metric?: DashboardMetric;
@@ -395,6 +416,7 @@ function KpiCard({
   loading: boolean;
   empty?: boolean;
   tone?: "teal" | "danger";
+  onClick?: () => void;
 }) {
   const iconClass = tone === "danger" ? "bg-red-50 text-red-600" : "bg-teal-50 text-teal-700";
   const value = formatter === "money" ? displayMoney(metric?.value) : displayCount(metric?.value);
@@ -403,7 +425,15 @@ function KpiCard({
   const state = isError ? "غير متاح" : isEmpty ? "لا توجد بيانات" : null;
   const detail = isError ? (metric?.message || "راجع صحة المصدر") : isEmpty ? "لا توجد بيانات في الفترة المحددة" : subtitle;
   return (
-    <div className="dawaa-card min-h-[154px]">
+    <button
+      type="button"
+      onClick={onClick}
+      className={cx(
+        "dawaa-card min-h-[154px] text-left",
+        onClick ? "cursor-pointer hover:-translate-y-0.5 hover:shadow-lg transition-all" : "",
+      )}
+      disabled={!onClick}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-xs font-bold text-slate-500">{label}</div>
@@ -413,7 +443,7 @@ function KpiCard({
         <div className={cx("rounded-2xl p-3", iconClass)}><Icon className="h-5 w-5" /></div>
       </div>
       {metric?.status === "ready" && <div className="mt-4 text-[11px] font-bold text-slate-400">بيانات ملخصة ومعتمدة</div>}
-    </div>
+    </button>
   );
 }
 

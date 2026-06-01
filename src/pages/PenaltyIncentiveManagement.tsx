@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useEscapeKey } from "@/hooks/useEscapeKey";
 import { useNavigate } from "react-router-dom";
 import {
   Plus,
@@ -743,8 +744,8 @@ export default function PenaltyIncentiveManagement() {
 
       {/* Add Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl w-full max-w-md p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowModal(false)}>
+          <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl w-full max-w-md p-6 space-y-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             {/* Modal header */}
             <div className="flex items-center justify-between">
               <h2 className="text-white font-bold text-lg">
@@ -902,6 +903,7 @@ export default function PenaltyIncentiveManagement() {
 }
 
 function TransactionDetailsModal({ record, onClose, onStaff }: { record: PointRecord; onClose: () => void; onStaff: () => void }) {
+  useEscapeKey(onClose, true);
   const details = getTransactionDetails(record);
   const fields = [
     ["الموظف", details.employee],

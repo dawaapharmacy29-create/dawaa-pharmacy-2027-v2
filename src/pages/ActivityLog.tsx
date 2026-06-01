@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEscapeKey } from "@/hooks/useEscapeKey";
 import { Activity, Database, Search, ExternalLink, X } from "lucide-react";
 import { BRANCHES } from "@/lib/constants";
 import { formatDateTime } from "@/lib/utils";
@@ -138,6 +139,8 @@ export default function ActivityLog() {
   }, [logs, search, branchFilter, moduleFilter, userFilter, actionFilter, dateFrom]);
 
   const today = new Date().toDateString();
+
+  useEscapeKey(() => setSelectedLog(null), Boolean(selectedLog));
 
   if (!isSupabaseConfigured) {
     return (

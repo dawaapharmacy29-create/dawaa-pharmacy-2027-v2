@@ -31,6 +31,10 @@ const NO_STORE_PATTERNS = [
 const NO_STORE_ROUTE_PREFIXES = [
   "/customers",
   "/customer-service",
+  "/activity-log",
+  "/points",
+  "/team",
+  "/staff",
   "/analytics",
   "/dashboard",
   "/import-invoices",
