@@ -1,7 +1,7 @@
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { ALL_FILTER, getCustomers, normalizeCustomerMetric, type CustomerMetric } from "@/lib/api/customers";
 import { normalizeBranchName } from "@/lib/branch";
-import { getBestCustomerPhone } from "@/lib/customerAnalyticsService";
+import { getBestCustomerPhone, isValidEgyptPhone } from "@/lib/customerAnalyticsService";
 
 export type FollowupRow = {
   id: string;
@@ -84,6 +84,13 @@ export type FollowupFilters = {
   responsible?: string;
   search?: string;
   limit?: number;
+};
+
+export type CustomerServiceSearchResult = CustomerMetric & {
+  source: "customer_metrics_summary" | "customers";
+  hasTodayFollowup: boolean;
+  displayPhone: string | null;
+  profile?: Row | null;
 };
 
 export type FollowupStats = {
@@ -184,6 +191,29 @@ function normalizeSearchPattern(search: string) {
   return safe.includes("%") ? safe : `%${safe}%`;
 }
 
+function normalizeDigits(value: string) {
+  const arabicDigits = "٠١٢٣٤٥٦٧٨٩";
+  return value
+    .replace(/[٠-٩]/g, (digit) => String(arabicDigits.indexOf(digit)))
+    .replace(/[^\d]/g, "");
+}
+
+function phoneVariants(search: string) {
+  const digits = normalizeDigits(search);
+  if (digits.length < 7) return [];
+  const values = new Set<string>([digits]);
+  if (digits.startsWith("01")) values.add(`20${digits}`);
+  if (digits.startsWith("201")) values.add(digits.slice(1));
+  if (digits.startsWith("00201")) values.add(digits.slice(2));
+  return [...values];
+}
+
+function extractCodeLikePhone(value?: string | null) {
+  const trimmed = String(value || "").trim();
+  const match = trimmed.match(/^code:(.+)$/i);
+  return match?.[1]?.trim() || "";
+}
+
 function normalizeStatus(value?: string | null) {
   const raw = String(value || "").trim();
   if (!raw || raw === "pending") return "معلق";
@@ -253,12 +283,13 @@ async function safeUpdateFollowup(id: string, payload: Row) {
 
 function enrichFollowup(row: FollowupRow, metrics: CustomerMetric | null): FollowupRow {
   if (!metrics) return row;
+  const bestPhone = getBestCustomerPhone(row, metrics, null);
   return {
     ...row,
     customer_metrics: metrics,
     customer_code: row.customer_code || metrics.customer_code,
-    customer_phone: row.customer_phone || row.phone || metrics.customer_phone,
-    phone: row.phone || row.customer_phone || metrics.customer_phone,
+    customer_phone: bestPhone || metrics.customer_phone,
+    phone: bestPhone || null,
     customer_name: row.customer_name || row.name || metrics.customer_name,
     name: row.name || row.customer_name || metrics.customer_name,
     branch: normalizeBranchName(row.branch || metrics.branch),
@@ -271,14 +302,19 @@ function enrichFollowup(row: FollowupRow, metrics: CustomerMetric | null): Follo
 }
 
 async function loadMetricsForFollowups(rows: FollowupRow[]) {
-  const codeValues = [...new Set(rows.map((row) => row.customer_code).filter(Boolean).map(String))].slice(0, 100);
-  const phoneValues = [...new Set(rows.flatMap((row) => [row.customer_phone, row.phone]).filter(Boolean).map(String))].slice(0, 100);
+  const codeValues = [...new Set(rows.flatMap((row) => [
+    row.customer_code,
+    extractCodeLikePhone(row.customer_phone),
+    extractCodeLikePhone(row.phone),
+  ]).filter(Boolean).map(String))].slice(0, 100);
+  const phoneValues = [...new Set(rows.flatMap((row) => [row.customer_phone, row.phone])
+    .filter((phone) => isValidEgyptPhone(phone, rowCustomerCode(rows, phone)))
+    .map(String))].slice(0, 100);
   if (!codeValues.length && !phoneValues.length) return rows;
 
   const summaryClauses = [
     ...codeValues.map((code) => `customer_code.eq.${code}`),
     ...phoneValues.map((phone) => `customer_phone.eq.${phone}`),
-    ...phoneValues.map((phone) => `phone.eq.${phone}`),
   ];
   const profileClauses = [
     ...codeValues.map((code) => `customer_code.eq.${code}`),
@@ -357,13 +393,118 @@ async function loadMetricsForFollowups(rows: FollowupRow[]) {
   });
 }
 
-export async function searchCustomerMetrics(search: string, branch?: string) {
-  return getCustomers({
+function rowCustomerCode(rows: FollowupRow[], phone: unknown) {
+  const match = rows.find((row) => row.customer_phone === phone || row.phone === phone);
+  return match?.customer_code || extractCodeLikePhone(String(phone || ""));
+}
+
+export async function searchCustomerMetrics(search: string, branch?: string): Promise<CustomerServiceSearchResult[]> {
+  const metricResult = await getCustomers({
     search,
     branch: branch && branch !== ALL_FILTER ? branch : ALL_FILTER,
-    limit: 20,
+    limit: 30,
     offset: 0,
   }).then((result) => result.customers);
+
+  const pattern = normalizeSearchPattern(search);
+  const variants = phoneVariants(search);
+  const branchFilter = branch && branch !== ALL_FILTER ? branch : "";
+  const profileClauses = [
+    pattern ? `customer_code.ilike.${pattern}` : "",
+    pattern ? `customer_name.ilike.${pattern}` : "",
+    pattern ? `name.ilike.${pattern}` : "",
+    pattern ? `final_customer_key.ilike.${pattern}` : "",
+    ...variants.flatMap((phone) => [
+      `customer_phone.eq.${phone}`,
+      `phone.eq.${phone}`,
+      `phone_alt.eq.${phone}`,
+      `whatsapp_phone.eq.${phone}`,
+    ]),
+  ].filter(Boolean);
+
+  const profileQuery = profileClauses.length
+    ? supabase
+      .from("customers")
+      .select("id,customer_id,final_customer_key,customer_code,customer_name,name,customer_phone,phone,whatsapp_phone,phone_alt,branch,address,customer_flags,customer_notes,service_notes,team_notes,handling_notes,whatsapp_notes")
+      .or(profileClauses.join(","))
+      .limit(30)
+    : Promise.resolve({ data: [], error: null } as any);
+
+  const profileResult = await profileQuery;
+  const profileRows = ((profileResult.data ?? []) as Row[]).filter((row) => !branchFilter || normalizeBranchName(row.branch) === normalizeBranchName(branchFilter));
+
+  const byKey = new Map<string, CustomerServiceSearchResult>();
+  for (const metric of metricResult) {
+    const key = metric.final_customer_key || metric.customer_id || metric.customer_code || metric.customer_phone || metric.id;
+    byKey.set(String(key), {
+      ...metric,
+      source: "customer_metrics_summary",
+      hasTodayFollowup: false,
+      displayPhone: getBestCustomerPhone({ customer_code: metric.customer_code, customer_phone: metric.customer_phone, phone: metric.phone } as FollowupRow, metric, null),
+      profile: null,
+    });
+  }
+
+  for (const profile of profileRows) {
+    const metric = normalizeCustomerMetric({
+      final_customer_key: profile.final_customer_key || profile.id || profile.customer_id,
+      customer_id: profile.customer_id || profile.id,
+      customer_code: profile.customer_code,
+      customer_name: profile.customer_name || profile.name,
+      customer_phone: profile.customer_phone || profile.phone || profile.whatsapp_phone || profile.phone_alt,
+      branch: profile.branch,
+      invoices_count: 0,
+      total_spent: 0,
+      avg_invoice: 0,
+      first_purchase: null,
+      last_purchase: null,
+      active_months: 0,
+      avg_monthly: 0,
+      segment: null,
+      customer_status: null,
+    });
+    const key = metric.final_customer_key || metric.customer_id || metric.customer_code || metric.customer_phone || metric.id;
+    const displayPhone = getBestCustomerPhone({ customer_code: metric.customer_code, customer_phone: metric.customer_phone, phone: metric.phone } as FollowupRow, metric, profile);
+    byKey.set(String(key), {
+      ...(byKey.get(String(key)) || metric),
+      ...metric,
+      source: byKey.has(String(key)) ? "customer_metrics_summary" : "customers",
+      hasTodayFollowup: false,
+      displayPhone,
+      profile,
+    });
+  }
+
+  const { start, end } = todayRange();
+  const codes = [...byKey.values()].map((item) => item.customer_code).filter(Boolean);
+  const phones = [...byKey.values()].map((item) => item.displayPhone || item.customer_phone).filter(Boolean);
+  const followupClauses = [
+    ...codes.map((code) => `customer_code.eq.${code}`),
+    ...phones.map((phone) => `customer_phone.eq.${phone}`),
+    ...phones.map((phone) => `phone.eq.${phone}`),
+  ];
+  if (followupClauses.length) {
+    const { data } = await supabase
+      .from("daily_followups")
+      .select("id,customer_code,customer_phone,phone")
+      .gte("created_at", start)
+      .lt("created_at", end)
+      .or(followupClauses.join(","))
+      .limit(80);
+    const todayKeys = new Set((data ?? []).flatMap((row: Row) => [row.customer_code, row.customer_phone, row.phone].filter(Boolean).map(String)));
+    for (const [key, item] of byKey) {
+      byKey.set(key, {
+        ...item,
+        hasTodayFollowup: Boolean(
+          (item.customer_code && todayKeys.has(item.customer_code)) ||
+          (item.displayPhone && todayKeys.has(item.displayPhone)) ||
+          (item.customer_phone && todayKeys.has(item.customer_phone))
+        ),
+      });
+    }
+  }
+
+  return [...byKey.values()].slice(0, 30);
 }
 
 export async function fetchCustomerServiceFollowups(filters: FollowupFilters = {}) {

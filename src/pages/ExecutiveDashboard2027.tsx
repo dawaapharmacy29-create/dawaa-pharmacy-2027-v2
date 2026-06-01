@@ -27,7 +27,7 @@ import {
   YAxis,
 } from "recharts";
 import { supabase } from "@/lib/supabase";
-import { formatCycleDate, getCurrentCycle } from "@/lib/pharmacy-cycle";
+import { formatCycleDate, getCurrentCycle, getPreviousCycle } from "@/lib/pharmacy-cycle";
 import {
   ALL_BRANCHES,
   ALL_BRANCHES_LABEL,
@@ -162,6 +162,14 @@ export default function ExecutiveDashboard2027() {
   const loadSummary = async () => {
     setLoading(true);
     try {
+      if (import.meta.env.DEV) {
+        console.debug("[ExecutiveDashboard KPIs]", {
+          p_start_date: periodStart,
+          p_end_date: periodEnd,
+          branch,
+          net_sales_source: "get_dashboard_kpis ثم sales_daily_summary عند غياب net_total",
+        });
+      }
       const result = await fetchExecutiveDashboardSummary({ startDate: periodStart, endDate: periodEnd, branch });
       setSummary(result);
       setLastRefreshed(new Date().toISOString());
@@ -222,6 +230,11 @@ export default function ExecutiveDashboard2027() {
     }
   };
 
+  const setCycleRange = (cycle: ReturnType<typeof getCurrentCycle>) => {
+    setPeriodStart(formatCycleDate(cycle.start));
+    setPeriodEnd(formatCycleDate(cycle.end));
+  };
+
   const actionIconByKey: Record<string, ElementType> = {
     "overdue-followups": AlertTriangle,
     "due-today": ClipboardList,
@@ -256,6 +269,8 @@ export default function ExecutiveDashboard2027() {
           </select>
           <input className="dawaa-input w-[145px]" type="date" value={periodStart} onChange={(event) => setPeriodStart(event.target.value)} aria-label="بداية الفترة" />
           <input className="dawaa-input w-[145px]" type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} aria-label="نهاية الفترة" />
+          <button type="button" className="btn-secondary px-3 py-2" onClick={() => setCycleRange(getCurrentCycle())}>الدورة الحالية</button>
+          <button type="button" className="btn-secondary px-3 py-2" onClick={() => setCycleRange(getPreviousCycle())}>الدورة السابقة</button>
           <button
             type="button"
             className="dawaa-button-primary"
@@ -320,11 +335,7 @@ export default function ExecutiveDashboard2027() {
       </section>
 
       <Panel title="مركز القرار السريع" source="RPC + summary views + lightweight counts" featured>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {(summary?.actionCenter || []).map((card) => (
-            <ActionCard key={card.key} item={card} icon={actionIconByKey[card.key] || AlertTriangle} />
-          ))}
-        </div>
+        <DecisionCenter summary={summary} actionIconByKey={actionIconByKey} />
       </Panel>
 
       <section className="grid gap-4 xl:grid-cols-[1.45fr_.9fr]">
@@ -445,6 +456,107 @@ function KpiCard({
       {metric?.status === "ready" && <div className="mt-4 text-[11px] font-bold text-slate-400">بيانات ملخصة ومعتمدة</div>}
     </button>
   );
+}
+
+function DecisionCenter({ summary, actionIconByKey }: { summary: DashboardSummary | null; actionIconByKey: Record<string, ElementType> }) {
+  const actions = summary?.actionCenter || [];
+  const byKey = new Map(actions.map((item) => [item.key, item]));
+  const teamItems: DashboardActionItem[] = [
+    {
+      key: "best-doctor",
+      label: "أفضل دكتور",
+      value: summary?.staffSales?.[0]?.netTotal ?? null,
+      status: summary?.staffSales?.length ? "ready" : "empty",
+      severity: "info",
+      recommendation: summary?.staffSales?.[0]?.sellerName ? `${summary.staffSales[0].sellerName} · ${formatMoney(summary.staffSales[0].netTotal)}` : "لا توجد بيانات دكاترة",
+      route: "/analytics",
+      source: "staff_sales_summary",
+      message: null,
+      error: null,
+    },
+    {
+      key: "best-delivery",
+      label: "أفضل دليفري",
+      value: summary?.deliveryPerformance?.[0]?.deliveriesCount ?? null,
+      status: summary?.deliveryPerformance?.length ? "ready" : "empty",
+      severity: "info",
+      recommendation: summary?.deliveryPerformance?.[0]?.deliveryStaff ? `${summary.deliveryPerformance[0].deliveryStaff} · ${formatNumber(summary.deliveryPerformance[0].deliveriesCount)} طلب` : "لا توجد بيانات دليفري",
+      route: "/delivery",
+      source: "delivery_performance_summary",
+      message: null,
+      error: null,
+    },
+  ];
+  const sections = [
+    {
+      title: "مطلوب تدخل فوري",
+      hint: "حالات عالية الأولوية قبل نهاية الوردية",
+      keys: ["overdue-followups", "needs-manager", "due-today", "important-risk", "urgent-notifications"],
+    },
+    {
+      title: "فرص اليوم",
+      hint: "فرص استرجاع ومتابعة وتحسين الحافز",
+      keys: ["important-risk", "due-today", "urgent-notifications"],
+    },
+    {
+      title: "أخطاء بيانات محتاجة تصحيح",
+      hint: "تصحيحها يحسن التحليلات والتقييم",
+      keys: ["unlinked-customers", "missing-doctor", "missing-branch"],
+    },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 xl:grid-cols-3">
+        {sections.map((section) => (
+          <div key={section.title} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3">
+              <h3 className="text-base font-black text-slate-950">{section.title}</h3>
+              <p className="mt-1 text-xs font-semibold text-slate-500">{section.hint}</p>
+            </div>
+            <div className="space-y-2">
+              {section.keys.map((key) => {
+                const item = byKey.get(key);
+                return item ? <DecisionItem key={`${section.title}-${key}`} item={item} icon={actionIconByKey[key] || AlertTriangle} /> : null;
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-3">
+          <h3 className="text-base font-black text-slate-950">أداء الفريق اليوم</h3>
+          <p className="mt-1 text-xs font-semibold text-slate-500">لقطة سريعة من ملخصات الدكاترة والدليفري والتنبيهات.</p>
+        </div>
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+          {[...teamItems, ...(byKey.get("overdue-followups") ? [byKey.get("overdue-followups")!] : []), ...(byKey.get("urgent-notifications") ? [byKey.get("urgent-notifications")!] : [])].map((item) => (
+            <DecisionItem key={`team-${item.key}`} item={item} icon={actionIconByKey[item.key] || TrendingUp} compact />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DecisionItem({ item, icon: Icon, compact = false }: { item: DashboardActionItem; icon: ElementType; compact?: boolean }) {
+  const isUnavailable = item.status === "error" || item.status === "unavailable";
+  const isZero = item.status === "empty" || item.value === 0;
+  const value = isUnavailable ? "غير متاح" : isZero ? "لا توجد حالات" : displayCount(item.value);
+  const color = item.severity === "danger" ? "border-red-200 bg-red-50 text-red-700" : item.severity === "warning" ? "border-amber-200 bg-amber-50 text-amber-700" : "border-blue-200 bg-blue-50 text-blue-700";
+  const body = (
+    <div className={cx("rounded-2xl border p-3 transition hover:-translate-y-0.5 hover:shadow-md", color, compact ? "min-h-[112px]" : "min-h-[132px]")}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="font-black">{item.label}</div>
+        <Icon className="h-4 w-4 shrink-0" />
+      </div>
+      <div className="mt-2 text-xl font-black text-slate-950">{value}</div>
+      <div className="mt-1 line-clamp-2 text-xs font-bold opacity-80">
+        {isUnavailable ? item.message || "يحتاج مراجعة مصدر البيانات" : isZero ? "لا يوجد إجراء مطلوب الآن" : item.recommendation}
+      </div>
+      {item.route && <div className="mt-2 inline-flex rounded-xl bg-white/75 px-2 py-1 text-[11px] font-black">فتح الإجراء</div>}
+    </div>
+  );
+  return item.route ? <Link to={item.route}>{body}</Link> : body;
 }
 
 function ActionCard({

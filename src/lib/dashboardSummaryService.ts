@@ -832,7 +832,7 @@ function buildActionCenter(args: {
       status: normalizedKpis.urgentNotifications.status,
       severity: normalizedKpis.urgentNotifications.value ? "danger" : "info",
       recommendation: "ابدأ بالتنبيهات الأعلى أولوية",
-      route: "/notifications",
+      route: "/operations-center",
       source: "notifications",
       message: normalizedKpis.urgentNotifications.message,
       error: normalizedKpis.urgentNotifications.error,
