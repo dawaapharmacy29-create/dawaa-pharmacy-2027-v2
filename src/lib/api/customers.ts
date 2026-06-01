@@ -303,7 +303,7 @@ export async function getCustomers(options: GetCustomersOptions = {}) {
   
   let query = supabase
     .from(SUMMARY_TABLE)
-    .select("final_customer_key,customer_id,customer_code,customer_name,customer_phone,branch,invoices_count,total_spent,avg_invoice,first_purchase,last_purchase,active_months,avg_monthly,segment_value,segment,customer_status", { count: "exact" });
+    .select("final_customer_key,customer_id,customer_code,customer_name,customer_phone,branch,invoices_count,total_spent,avg_invoice,first_purchase,last_purchase,active_months,avg_monthly,segment,customer_status", { count: "exact" });
 
   query = applyListFilters(query, options);
 

@@ -310,6 +310,10 @@ export default function CustomerService() {
     }
   };
 
+  const noopLog = async () => {
+    // no-op logger for missing callbacks and defensive rendering
+  };
+
   const safeLog = async (action: string, details: Record<string, unknown>) => {
     try {
       await logActivity({
@@ -323,8 +327,8 @@ export default function CustomerService() {
         user_role: user?.role,
         branch_name: branchFilter === ALL_FILTER ? undefined : branchFilter,
       });
-    } catch {
-      // Activity logging should never block operational followups.
+    } catch (error) {
+      console.warn("activity log failed", error);
     }
   };
 
@@ -684,6 +688,7 @@ function FollowupGroup({
   onResult,
   onPostpone,
   onQuickUpdate,
+  onLog = noopLog,
 }: {
   title: string;
   rows: FollowupRow[];
@@ -692,7 +697,7 @@ function FollowupGroup({
   onResult: (row: FollowupRow) => void;
   onPostpone: (row: FollowupRow) => void;
   onQuickUpdate: (row: FollowupRow, payload: FollowupResultPayload, success: string) => void;
-  onLog: (action: string, details: Record<string, unknown>) => void;
+  onLog?: (action: string, details: Record<string, unknown>) => void;
 }) {
   return (
     <section className="dawaa-panel">
@@ -718,14 +723,14 @@ function FollowupGroup({
   );
 }
 
-function FollowupCard({ row, active, onSelect, onResult, onPostpone, onQuickUpdate, onLog }: {
+function FollowupCard({ row, active, onSelect, onResult, onPostpone, onQuickUpdate, onLog = noopLog }: {
   row: FollowupRow;
   active: boolean;
   onSelect: () => void;
   onResult: () => void;
   onPostpone: () => void;
   onQuickUpdate: (row: FollowupRow, payload: FollowupResultPayload, success: string) => void;
-  onLog: (action: string, details: Record<string, unknown>) => void;
+  onLog?: (action: string, details: Record<string, unknown>) => void;
 }) {
   const phone = phoneOf(row);
   const cleanPhone = cleanEgyptianPhone(phone);
@@ -1052,7 +1057,7 @@ function CustomerHistoryCenter({ followup }: { followup: FollowupRow | null }) {
   );
 }
 
-function ScriptPreviewPanel({ row, onLog }: { row: FollowupRow | null; onLog: (action: string, details: Record<string, unknown>) => void }) {
+function ScriptPreviewPanel({ row, onLog = noopLog }: { row: FollowupRow | null; onLog?: (action: string, details: Record<string, unknown>) => void }) {
   const [scriptType, setScriptType] = useState<string>("");
   if (!row) return <section className="dawaa-panel"><Empty text="اختر متابعة لعرض سكريبت التواصل" /></section>;
   const phone = phoneOf(row);

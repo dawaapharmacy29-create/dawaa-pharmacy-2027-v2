@@ -153,7 +153,11 @@ async function networkFirst(request) {
     const networkRes = await fetch(request.clone());
     if (networkRes.ok) {
       const cache = await caches.open(CACHE_DYNAMIC);
-      cache.put(request, networkRes.clone());
+      try {
+        await cache.put(request, networkRes.clone());
+      } catch (error) {
+        console.warn("SW cache put failed", error);
+      }
     }
     return networkRes;
   } catch {
@@ -175,7 +179,11 @@ async function cacheFirst(request, cacheName = CACHE_IMAGES, maxEntries = 40) {
     if (networkRes.ok) {
       const cache = await caches.open(cacheName);
       await limitCacheSize(cache, maxEntries);
-      cache.put(request, networkRes.clone());
+      try {
+        await cache.put(request, networkRes.clone());
+      } catch (error) {
+        console.warn("SW cache put failed", error);
+      }
     }
     return networkRes;
   } catch {
@@ -189,11 +197,16 @@ async function staleWhileRevalidate(request) {
   const cached = await cache.match(request);
 
   const networkPromise = fetch(request.clone())
-    .then((res) => {
+    .then(async (res) => {
       if (res.ok) {
-        limitCacheSize(cache, DYNAMIC_CACHE_MAX).then(() =>
-          cache.put(request, res.clone())
-        );
+        try {
+          await limitCacheSize(cache, DYNAMIC_CACHE_MAX);
+          if (!res.bodyUsed) {
+            await cache.put(request, res.clone());
+          }
+        } catch (error) {
+          console.warn("SW stale cache put failed", error);
+        }
       }
       return res;
     })
@@ -208,7 +221,11 @@ async function navigationHandler(request) {
     const networkRes = await fetch(request.clone());
     if (networkRes.ok) {
       const cache = await caches.open(CACHE_STATIC);
-      cache.put(request, networkRes.clone());
+      try {
+        await cache.put(request, networkRes.clone());
+      } catch (error) {
+        console.warn("SW navigation cache put failed", error);
+      }
     }
     return networkRes;
   } catch {
