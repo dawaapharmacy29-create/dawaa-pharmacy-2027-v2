@@ -331,9 +331,9 @@ export async function getCustomerFullProfile(params: CustomerFullProfileParams):
   const profile = await safeSection("profile", async () => {
     if (!customerClauses) return null;
     const query = withAbort(
-      supabase
+        supabase
         .from("customers")
-        .select("id,customer_code,name,phone,customer_phone,whatsapp_phone,phone_alt,address,notes,customer_notes,whatsapp_notes,service_notes,team_notes,handling_notes,customer_flags,branch")
+        .select("id,customer_code,name,phone,whatsapp_phone,phone_alt,address,notes,customer_notes,whatsapp_notes,service_notes,team_notes,handling_notes,customer_flags,branch")
         .or(customerClauses)
         .limit(1),
       params.signal,
@@ -355,7 +355,7 @@ export async function getCustomerFullProfile(params: CustomerFullProfileParams):
           whatsapp_phone: readFirst(profile, ["whatsapp_phone"], null) as string | null,
           phone: readFirst(profile, ["phone"], null) as string | null,
           phone_alt: readFirst(profile, ["phone_alt"], null) as string | null,
-          customer_phone: readFirst(profile, ["customer_phone"], null) as string | null,
+          customer_phone: null,
         }
       : null,
   );

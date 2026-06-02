@@ -357,23 +357,35 @@ async function fetchSummaryRows(args: {
   health: SourceHealth;
   healthKey: keyof SourceHealth;
 }) {
-  let query = supabase
-    .from(args.table)
-    .select("*")
-    .gte(args.dateColumn, args.startDate)
-    .lt(args.dateColumn, dayAfter(args.endDate))
-    .limit(args.limit);
+  const pageSize = 1000;
+  const maxRows = Math.max(args.limit, pageSize);
+  const allRows: Row[] = [];
 
-  if (!isAllBranches(args.branch)) query = query.eq("branch", args.branch);
+  for (let from = 0; from < maxRows; from += pageSize) {
+    const to = Math.min(from + pageSize - 1, maxRows - 1);
+    let query = supabase
+      .from(args.table)
+      .select("*")
+      .gte(args.dateColumn, args.startDate)
+      .lt(args.dateColumn, dayAfter(args.endDate))
+      .order(args.dateColumn, { ascending: true })
+      .range(from, to);
 
-  const { data, error } = await query;
-  if (error) {
-    addError(args.errors, args.table, error.message);
-    return [];
+    if (!isAllBranches(args.branch)) query = query.eq("branch", args.branch);
+
+    const { data, error } = await query;
+    if (error) {
+      addError(args.errors, args.table, error.message);
+      return allRows;
+    }
+
+    const rows = (data ?? []) as Row[];
+    allRows.push(...rows);
+    if (rows.length < pageSize) break;
   }
 
   args.health[args.healthKey] = true;
-  return (data ?? []) as Row[];
+  return allRows;
 }
 
 async function fetchOrderedRows(
@@ -875,7 +887,7 @@ export async function fetchExecutiveDashboardSummary(params: {
       startDate,
       endDate,
       branch,
-      limit: 500,
+      limit: 10000,
       errors,
       health: sourceHealth,
       healthKey: "salesSummaryAvailable",
@@ -886,7 +898,7 @@ export async function fetchExecutiveDashboardSummary(params: {
       startDate,
       endDate,
       branch,
-      limit: 200,
+      limit: 10000,
       errors,
       health: sourceHealth,
       healthKey: "staffSummaryAvailable",
@@ -897,7 +909,7 @@ export async function fetchExecutiveDashboardSummary(params: {
       startDate,
       endDate,
       branch,
-      limit: 200,
+      limit: 10000,
       errors,
       health: sourceHealth,
       healthKey: "deliverySummaryAvailable",
@@ -908,7 +920,7 @@ export async function fetchExecutiveDashboardSummary(params: {
       startDate,
       endDate,
       branch,
-      limit: 200,
+      limit: 10000,
       errors,
       health: sourceHealth,
       healthKey: "followupSummaryAvailable",

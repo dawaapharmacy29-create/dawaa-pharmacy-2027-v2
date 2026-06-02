@@ -380,6 +380,14 @@ export default function ExecutiveDashboard2027() {
         </details>
       )}
 
+      <SourceDebugPanel
+        data={dashboardData}
+        startDate={periodStart}
+        endDate={periodEnd}
+        branch={branch}
+        mode={periodMode}
+      />
+
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
         <KpiCard label="صافي مبيعات الفترة" metric={normalizedKpis?.netSales} formatter="money" subtitle={periodMode === "custom" ? "إجمالي مبيعات الفترة المخصصة" : "صافي قيمة الدورة"} icon={Wallet} loading={loading} empty={!hasInvoiceRows} onClick={() => navigate(`/analytics?start=${periodStart}&end=${periodEnd}`)} />
         <KpiCard label="عدد الفواتير" metric={normalizedKpis?.invoicesCount} formatter="count" subtitle="فواتير الفترة المحددة" icon={ShoppingCart} loading={loading} empty={!hasInvoiceRows} onClick={() => navigate(`/invoices?start=${periodStart}&end=${periodEnd}`)} />
@@ -479,7 +487,7 @@ export default function ExecutiveDashboard2027() {
         <Panel title="Ù…ØªØ§Ø¨Ø¹Ø© Ø§Ù„Ø±ÙˆØ§ÙƒØ¯" source="stagnant_medicines">
           <OperationalTrackingPanel rows={dashboardData?.stagnantItems || []} error={dashboardData?.errorsBySection.stagnantItems} emptyText="Ù…ØµØ¯Ø± Ù…ØªØ§Ø¨Ø¹Ø© Ø§Ù„Ø±ÙˆØ§ÙƒØ¯ ØºÙŠØ± Ù…ØªØ§Ø­ Ø­Ø§Ù„ÙŠÙ‹Ø§" />
         </Panel>
-        <Panel title="Ù…ØªØ§Ø¨Ø¹Ø© Ø£ØµÙ†Ø§Ù Ø§Ù„Ù„Ø³ØªØ©" source="list_items">
+        <Panel title="Ù…ØªØ§Ø¨Ø¹Ø© Ø£ØµÙ†Ø§Ù Ø§Ù„Ù„Ø³ØªØ©" source="incentive_medicines">
           <OperationalTrackingPanel rows={dashboardData?.listItems || []} error={dashboardData?.errorsBySection.listItems} emptyText="Ù…ØµØ¯Ø± Ø£ØµÙ†Ø§Ù Ø§Ù„Ù„Ø³ØªØ© ØºÙŠØ± Ù…ØªØ§Ø­ Ø­Ø§Ù„ÙŠÙ‹Ø§" />
         </Panel>
       </section>
@@ -495,7 +503,7 @@ export default function ExecutiveDashboard2027() {
           <CustomerIntelligencePanel summary={summary} />
         </Panel>
         <Panel title="صحة البيانات" source="lightweight sales_invoices counts">
-          <DataHealthPanel summary={summary} />
+          <DataHealthPanel summary={summary} salesAccuracy={dashboardData?.salesAccuracy} />
         </Panel>
         <Panel title="حالة الملخصات" source="source health">
           <SourceHealthPanel summary={summary} />
@@ -561,6 +569,72 @@ function KpiCard({
       </div>
       {metric?.status === "ready" && <div className="mt-4 text-[11px] font-bold text-slate-400">بيانات ملخصة ومعتمدة</div>}
     </button>
+  );
+}
+
+function SourceDebugPanel({
+  data,
+  startDate,
+  endDate,
+  branch,
+  mode,
+}: {
+  data: ExecutiveDashboardData | null;
+  startDate: string;
+  endDate: string;
+  branch: string;
+  mode: "current" | "previous" | "custom";
+}) {
+  const rpcNet = data?.salesAccuracy.rpcNetSales ?? null;
+  const summaryNet = data?.salesAccuracy.summaryNetSales ?? null;
+  const diff = rpcNet !== null ? summaryNet - rpcNet : null;
+  const mismatch = diff !== null && Math.abs(diff) > 1;
+  const kpis = data?.summary.kpis;
+  const normalized = data?.summary.normalizedKpis;
+
+  return (
+    <details className={cx("rounded-2xl border bg-white p-4 shadow-sm", mismatch ? "border-amber-200" : "border-slate-200")}>
+      <summary className="cursor-pointer text-sm font-black text-slate-800">فحص مصادر البيانات</summary>
+      <div className="mt-4 grid gap-3 lg:grid-cols-3">
+        <InfoBox title="الفترة والفرع">
+          <InfoLine label="بداية الفترة" value={startDate} />
+          <InfoLine label="نهاية الفترة" value={endDate} />
+          <InfoLine label="الفرع" value={branch === ALL_BRANCHES ? ALL_BRANCHES_LABEL : branch} />
+          <InfoLine label="وضع التحليل" value={mode === "custom" ? "فترة مخصصة" : mode === "current" ? "الدورة الحالية" : "الدورة السابقة"} />
+        </InfoBox>
+        <InfoBox title="RPC get_dashboard_kpis">
+          <InfoLine label="p_start_date" value={startDate} />
+          <InfoLine label="p_end_date" value={endDate} />
+          <InfoLine label="p_branch" value={branch === ALL_BRANCHES ? "null" : branch} />
+          <InfoLine label="net_total" value={rpcNet === null ? "غير متاح" : formatMoney(rpcNet)} />
+          <InfoLine label="invoices_count" value={displayCount(kpis?.invoicesCount)} />
+          <InfoLine label="avg_invoice" value={displayMoney(kpis?.avgInvoice)} />
+          <InfoLine label="unique_customers" value={displayCount(kpis?.uniqueCustomers)} />
+        </InfoBox>
+        <InfoBox title="sales_daily_summary">
+          <InfoLine label="إجمالي صافي الملخص" value={formatMoney(summaryNet)} />
+          <InfoLine label="عدد الفواتير من الملخص" value={displayCount(data?.salesAccuracy.invoicesCount)} />
+          <InfoLine label="الفرق مع RPC" value={diff === null ? "غير متاح" : formatMoney(diff)} />
+          <InfoLine label="مصدر صافي المبيعات المعروض" value={data?.salesAccuracy.netSalesSource || "غير متاح"} />
+          <InfoLine label="مصدر عدد الفواتير" value={normalized?.invoicesCount.source || "غير متاح"} />
+          <InfoLine label="مصدر متوسط الفاتورة" value={normalized?.avgInvoice.source || "غير متاح"} />
+        </InfoBox>
+      </div>
+      {mismatch && (
+        <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800">
+          يوجد اختلاف بين صافي المبيعات من RPC و sales_daily_summary. راجع SQL الخاص بالدالة أو الملخص قبل اعتماد الرقم النهائي.
+        </div>
+      )}
+    </details>
+  );
+}
+
+function InfoBox({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+      <div className="mb-2 text-sm font-black text-slate-950">{title}</div>
+      <div className="space-y-2">{children}</div>
+    </div>
   );
 }
 
@@ -901,7 +975,6 @@ function FollowupPerformance({ totals, available }: { totals: ReturnType<typeof 
     </div>
   );
 }
-
 function CustomerServiceImpact({ rows, totals }: { rows: FollowupPerformanceSummary[]; totals: ReturnType<typeof sumFollowups> }) {
   const summarize = (items: FollowupPerformanceSummary[]) => {
     const total = sumFollowups(items);
@@ -965,11 +1038,19 @@ function CustomerIntelligencePanel({ summary }: { summary: DashboardSummary | nu
   );
 }
 
-function DataHealthPanel({ summary }: { summary: DashboardSummary | null }) {
+function DataHealthPanel({ summary, salesAccuracy }: { summary: DashboardSummary | null; salesAccuracy?: ExecutiveDashboardData["salesAccuracy"] }) {
   const health = summary?.dataHealth;
+  const salesDiff = salesAccuracy?.rpcNetSales !== null && salesAccuracy?.rpcNetSales !== undefined
+    ? Math.abs((salesAccuracy?.summaryNetSales || 0) - salesAccuracy.rpcNetSales)
+    : 0;
   if (!health || health.error) return <Empty text={health?.error ? friendlySourceError(health.error) : "غير متاح حاليًا"} />;
   return (
     <div className="grid grid-cols-2 gap-2">
+      {salesDiff > 1 && (
+        <div className="col-span-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-black text-amber-800">
+          اختلاف في صافي المبيعات بين RPC وملخص المبيعات: {formatMoney(salesDiff)}
+        </div>
+      )}
       <MiniStat label="بدون كود عميل" value={displayCount(health.invoicesWithoutCustomerCode)} tone={health.invoicesWithoutCustomerCode ? "danger" : "teal"} />
       <MiniStat label="بدون هاتف" value={displayCount(health.invoicesWithoutCustomerPhone)} tone={health.invoicesWithoutCustomerPhone ? "danger" : "teal"} />
       <MiniStat label="بدون دكتور" value={displayCount(health.invoicesWithoutSellerName)} tone={health.invoicesWithoutSellerName ? "danger" : "teal"} />
