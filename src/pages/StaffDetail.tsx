@@ -11,6 +11,7 @@ import { formatMoney, formatNumber } from "@/lib/dawaa2027";
 import { monthCycleFromDate, type ReviewItemSummary } from "@/lib/conversationReviews";
 import { canonicalMaxPoints, effectiveCyclePoints, getTransactionShortReason, isApprovedPointRecord, isRecordInCycle, pointRecordDelta, recordBelongsToStaff } from "@/lib/pointsLedger";
 import { TABLES } from "@/lib/supabaseTables";
+import { calculateStaffCycleIncentiveFromRows } from "@/lib/staffIncentiveService";
 
 interface StaffRow {
   id: string;
@@ -147,6 +148,12 @@ interface AssignedStagnantMedicine {
   status?: string | null;
 }
 
+function dayAfter(date: Date) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + 1);
+  return next.toISOString().slice(0, 10);
+}
+
 export default function StaffDetail() {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
@@ -190,17 +197,42 @@ export default function StaffDetail() {
       const pointByIdReq = supabase.from(TABLES.employeeTransactions).select("*").eq("staff_id", id).order("created_at", { ascending: false }).limit(150);
       const pointByEmployeeIdReq = supabase.from(TABLES.employeeTransactions).select("*").eq("employee_id", id).order("created_at", { ascending: false }).limit(150);
       const pointByNameReq = supabase.from(TABLES.employeeTransactions).select("*").eq("employee_name", row.name).order("created_at", { ascending: false }).limit(150);
-      const isDeliveryRole = /delivery|توصيل|دليفري/i.test(row.role || "");
-      const invoiceReq = supabase.from("sales_invoices").select("*").limit(10000);
+      const cycleStart = cycle.start.toISOString().slice(0, 10);
+      const cycleEndExclusive = dayAfter(cycle.end);
+      const invoiceReq = supabase
+        .from("staff_sales_summary")
+        .select("*")
+        .eq("seller_name", row.name)
+        .gte("sale_date", cycleStart)
+        .lt("sale_date", cycleEndExclusive)
+        .limit(500);
       const incentiveByIdReq = supabase.from("incentive_medicines").select("*").eq("doctor_id", id).limit(200);
       const incentiveByNameReq = supabase.from("incentive_medicines").select("*").eq("responsible_doctor", row.name).limit(200);
       const stagnantByIdReq = supabase.from("stagnant_medicines").select("*").eq("responsible_doctor_id", id).limit(200);
       const stagnantByNameReq = supabase.from("stagnant_medicines").select("*").or(`responsible_doctor_name.eq.${row.name},responsible_doctor.eq.${row.name}`).limit(200);
       const scheduleReq = supabase.from("shift_schedules").select("*").eq("staff_id", id).limit(80);
       const timeOffReq = supabase.from("shift_exceptions").select("*").eq("staff_id", id).order("date", { ascending: false }).limit(80);
-      const followupsReq = supabase.from("daily_followups").select("*").limit(3000);
-      const stagnantDispensesReq = supabase.from("stagnant_medicine_dispenses").select("*").limit(3000);
-      const listSalesReq = supabase.from("incentive_medicine_sales").select("*").limit(3000);
+      const followupsReq = supabase
+        .from("daily_followups")
+        .select("*")
+        .or(`staff_id.eq.${id},assigned_staff_id.eq.${id},responsible_name.eq.${row.name},assigned_to.eq.${row.name},assigned_doctor.eq.${row.name}`)
+        .gte("created_at", cycleStart)
+        .lt("created_at", cycleEndExclusive)
+        .limit(300);
+      const stagnantDispensesReq = supabase
+        .from("stagnant_medicine_dispenses")
+        .select("*")
+        .or(`doctor_id.eq.${id},staff_id.eq.${id},doctor_name.eq.${row.name},responsible_doctor_name.eq.${row.name},staff_name.eq.${row.name}`)
+        .gte("created_at", cycleStart)
+        .lt("created_at", cycleEndExclusive)
+        .limit(300);
+      const listSalesReq = supabase
+        .from("incentive_medicine_sales")
+        .select("*")
+        .or(`doctor_id.eq.${id},staff_id.eq.${id},doctor_name.eq.${row.name},responsible_doctor.eq.${row.name},staff_name.eq.${row.name}`)
+        .gte("created_at", cycleStart)
+        .lt("created_at", cycleEndExclusive)
+        .limit(300);
 
       const [prById, prByEmployeeId, prByName, invRes, incentiveById, incentiveByName, stagnantById, stagnantByName, scheduleRes, timeOffRes, followupsRes, stagnantDispensesRes, listSalesRes] = await Promise.all([
         pointByIdReq,
@@ -270,8 +302,9 @@ export default function StaffDetail() {
       setFollowupRows(((followupsRes && !followupsRes.error ? followupsRes.data : []) || []) as Record<string, unknown>[]);
       setStagnantDispenseRows(((stagnantDispensesRes && !stagnantDispensesRes.error ? stagnantDispensesRes.data : []) || []) as Record<string, unknown>[]);
       setListSaleRows(((listSalesRes && !listSalesRes.error ? listSalesRes.data : []) || []) as Record<string, unknown>[]);
-      const quickPerf = computeStaffPerformance2027({ staff: row as unknown as Record<string, unknown>, invoices: invRows, transactions: pointRows as unknown as Record<string, unknown>[] });
-      setInvoiceStats({ count: quickPerf.invoiceCount, total: quickPerf.totalSales });
+      const invoiceCount = invRows.reduce((sum, item) => sum + toNumber(item.invoices_count || item.invoice_count), 0);
+      const salesTotal = invRows.reduce((sum, item) => sum + toNumber(item.net_total || item.net_sales || item.sales_total), 0);
+      setInvoiceStats({ count: invoiceCount, total: salesTotal });
 
       const reviewToOpen = searchParams.get("review");
       if (reviewToOpen) {
@@ -305,15 +338,17 @@ export default function StaffDetail() {
   }, [activeMonthCycle, cycle, reviews]);
 
   const grouped = useMemo(() => {
-    const bonuses = cyclePointsRows.filter((r) => pointRecordDelta(r) > 0);
-    const deductions = cyclePointsRows.filter((r) => pointRecordDelta(r) < 0);
+    if (!staff) return { bonuses: [] as PointRecord[], deductions: [] as PointRecord[], bonusPts: 0, deductionPts: 0 };
+    const incentive = calculateStaffCycleIncentiveFromRows({ staff, records: pointsRows, cycle });
+    const bonuses = incentive.rewardTransactions as PointRecord[];
+    const deductions = incentive.deductionTransactions as PointRecord[];
     return {
       bonuses,
       deductions,
-      bonusPts: bonuses.reduce((s, r) => s + Math.abs(toNumber(r.points_delta) || toNumber(r.points)), 0),
-      deductionPts: deductions.reduce((s, r) => s + Math.abs(toNumber(r.points_delta) || toNumber(r.points)), 0),
+      bonusPts: incentive.approvedRewardPoints,
+      deductionPts: incentive.approvedDeductionPoints,
     };
-  }, [cyclePointsRows]);
+  }, [cycle, pointsRows, staff]);
 
   const reviewStats = useMemo(() => {
     const count = cycleReviews.length;
@@ -401,7 +436,8 @@ export default function StaffDetail() {
     );
   }
 
-  const pts = effectiveCyclePoints(staff, pointsRows, cycle);
+  const staffIncentive = calculateStaffCycleIncentiveFromRows({ staff, records: pointsRows, cycle });
+  const pts = staffIncentive.finalPoints;
   const max = canonicalMaxPoints(staff);
 
   return (
@@ -440,7 +476,7 @@ export default function StaffDetail() {
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
             <div className="section-title text-sm">ملف أداء 2027 المرتبط بالفواتير والعملاء</div>
-            <div className="mt-1 text-xs text-slate-400">يقرأ من sales_invoices وdaily_followups والرواكد واللستة داخل دورة 26 إلى 25.</div>
+            <div className="mt-1 text-xs text-slate-400">يقرأ المبيعات من staff_sales_summary مع متابعات ورواكد ولستة محدودة داخل دورة 26 إلى 25.</div>
           </div>
           <span className="badge-info">{performance2027.cycleLabel}</span>
         </div>

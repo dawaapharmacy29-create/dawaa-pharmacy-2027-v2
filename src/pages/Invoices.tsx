@@ -39,7 +39,7 @@ interface ManagedInvoiceRow {
   seller_name: string | null;
 }
 
-const INVOICE_PAGE_SIZE = 1000;
+const INVOICE_PAGE_SIZE = 200;
 
 function invoiceSalesValue(invoice: Pick<ManagedInvoiceRow, "net_amount" | "amount" | "gross_amount">) {
   return getSalesValue(invoice as unknown as Record<string, unknown>);
@@ -84,23 +84,18 @@ export default function Invoices() {
   const loadManagedInvoices = useCallback(async () => {
     if (!isAdmin) return;
     setManagedLoading(true);
-    const allRows: ManagedInvoiceRow[] = [];
-    for (let from = 0; from < 200000; from += INVOICE_PAGE_SIZE) {
-      const { data, error } = await supabase
-        .from("sales_invoices")
-        .select("id,import_batch,branch,invoice_number,invoice_date,invoice_type,customer_code,customer_name,customer_phone,amount,net_amount,gross_amount,seller_name")
-        .order("invoice_date", { ascending: false })
-        .range(from, from + INVOICE_PAGE_SIZE - 1);
+    const { data, error } = await supabase
+      .from("sales_invoices")
+      .select("id,import_batch,branch,invoice_number,invoice_date,invoice_type,customer_code,customer_name,customer_phone,amount,net_amount,gross_amount,seller_name")
+      .order("invoice_date", { ascending: false })
+      .limit(INVOICE_PAGE_SIZE);
 
-      if (error) {
-        toast.error(`تعذر تحميل كل الفواتير: ${error.message}`);
-        break;
-      }
-
-      allRows.push(...((data || []) as ManagedInvoiceRow[]));
-      if (!data || data.length < INVOICE_PAGE_SIZE) break;
+    if (error) {
+      toast.error(`تعذر تحميل أحدث الفواتير: ${error.message}`);
+      setManagedInvoices([]);
+    } else {
+      setManagedInvoices((data || []) as ManagedInvoiceRow[]);
     }
-    setManagedInvoices(allRows);
     setManagedLoading(false);
   }, [isAdmin]);
 

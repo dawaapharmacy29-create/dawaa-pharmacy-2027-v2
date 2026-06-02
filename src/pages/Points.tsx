@@ -11,6 +11,7 @@ import { approverHintFromRule, applyStaffDelta } from "@/lib/pointsPersistence";
 import { canonicalMaxPoints, effectiveCyclePoints, formatTransactionExecutor, getTransactionShortReason, isApprovedPointRecord, isRecordInCycle, pointRecordDelta, pointRecordStatus } from "@/lib/pointsLedger";
 import { type PointsTxnStatus } from "@/lib/pointsWorkflow";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
+import { calculateStaffCycleIncentiveFromRows } from "@/lib/staffIncentiveService";
 import { mergeStaffChoices } from "@/lib/staffFallback";
 import { formatCurrency, formatDateTime, percent, toNumber } from "@/lib/utils";
 import { useAuth, getCurrentUserProfile } from "@/hooks/useAuth";
@@ -208,18 +209,22 @@ export default function Points() {
   };
 
   const staffIncentiveSummary = (staff: StaffMember) => {
-    const employeeRecords = staffCycleRecords(staff);
-    const currentPoints = effectiveCyclePoints(staff, approvedCycleRecords, cycle);
-    const rewardPoints = employeeRecords.filter(isBonusRecord).reduce((sum, row) => sum + recordPoints(row), 0);
-    const penaltyPoints = employeeRecords.filter(isDeductionRecord).reduce((sum, row) => sum + recordPoints(row), 0);
+    const incentive = calculateStaffCycleIncentiveFromRows({
+      staff,
+      records: validRecords,
+      cycle,
+    });
     return {
       staff,
-      records: employeeRecords,
-      currentPoints,
+      records: [...incentive.rewardTransactions, ...incentive.deductionTransactions],
+      currentPoints: incentive.finalPoints,
       maxPoints: canonicalMaxPoints(staff),
-      rewardPoints,
-      penaltyPoints,
-      incentive: calculateIncentive(currentPoints),
+      rewardPoints: incentive.approvedRewardPoints,
+      penaltyPoints: incentive.approvedDeductionPoints,
+      pendingRewardPoints: incentive.pendingRewardPoints,
+      pendingDeductionPoints: incentive.pendingDeductionPoints,
+      incentive: incentive.incentiveValue,
+      warnings: incentive.warnings,
     };
   };
 

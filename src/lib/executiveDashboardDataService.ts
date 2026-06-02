@@ -46,17 +46,65 @@ export type OperationalTrackingItem = {
   error?: string | null;
 };
 
+export type DashboardFunnelStep = {
+  key: string;
+  label: string;
+  value: number | null;
+  rate: number | null;
+};
+
+export type DashboardResultSlice = {
+  key: string;
+  label: string;
+  value: number | null;
+  color: string;
+};
+
+export type DashboardCustomerPreview = {
+  name: string | null;
+  code: string | null;
+  phone: string | null;
+  branch: string | null;
+  segment: string | null;
+  status: string | null;
+  totalSpent: number | null;
+  avgMonthly: number | null;
+  lastPurchase: string | null;
+  source: string;
+  error: string | null;
+};
+
+export type DashboardInvoicePreview = {
+  id: string;
+  invoiceNumber: string | null;
+  invoiceDate: string | null;
+  amount: number;
+  branch: string | null;
+};
+
 export type ExecutiveDashboardData = {
   summary: DashboardSummary;
   kpis: DashboardSummary["normalizedKpis"];
   salesTrend: TrendPoint[];
   branchPerformance: BranchPerformancePoint[];
   doctorPerformance: StaffSalesSummary[];
+  followupFunnel: DashboardFunnelStep[];
+  followupResults: DashboardResultSlice[];
   customerServiceImpact: FollowupPerformanceSummary[];
   customerAnalytics: DashboardSummary["customerIntelligence"];
   stagnantItems: OperationalTrackingItem[];
   listItems: OperationalTrackingItem[];
+  stagnantTracking: OperationalTrackingItem[];
+  listItemTracking: OperationalTrackingItem[];
   deliveryPerformance: DeliveryPerformanceSummary[];
+  deliveryTracking: {
+    totalOrders: number | null;
+    deliverySales: number | null;
+    topStaff: string | null;
+    source: string;
+  };
+  customerPreview: DashboardCustomerPreview | null;
+  latestInvoicesPreview: DashboardInvoicePreview[];
   dataHealth: DashboardSummary["dataHealth"];
   quickDecisionItems: DashboardActionItem[];
   sourceHealth: DashboardSummary["sourceHealth"];
@@ -248,6 +296,129 @@ function buildSalesAccuracy(summary: DashboardSummary) {
   };
 }
 
+function sumFollowups(rows: FollowupPerformanceSummary[]) {
+  return rows.reduce(
+    (acc, row) => ({
+      assignedCount: acc.assignedCount + row.assignedCount,
+      completedCount: acc.completedCount + row.completedCount,
+      overdueCount: acc.overdueCount + row.overdueCount,
+      noAnswerCount: acc.noAnswerCount + row.noAnswerCount,
+      postponedCount: acc.postponedCount + row.postponedCount,
+      needsManagerCount: acc.needsManagerCount + row.needsManagerCount,
+      purchaseAfterFollowupAmount: acc.purchaseAfterFollowupAmount + row.purchaseAfterFollowupAmount,
+    }),
+    {
+      assignedCount: 0,
+      completedCount: 0,
+      overdueCount: 0,
+      noAnswerCount: 0,
+      postponedCount: 0,
+      needsManagerCount: 0,
+      purchaseAfterFollowupAmount: 0,
+    },
+  );
+}
+
+function buildFollowupFunnel(rows: FollowupPerformanceSummary[]): DashboardFunnelStep[] {
+  const totals = sumFollowups(rows);
+  const base = totals.assignedCount || null;
+  const rate = (value: number) => (base ? (value / base) * 100 : null);
+  return [
+    { key: "prepared", label: "تجهيز المتابعة", value: totals.assignedCount, rate: rate(totals.assignedCount) },
+    { key: "contacted", label: "تم التواصل", value: totals.completedCount, rate: rate(totals.completedCount) },
+    { key: "interested", label: "مهتم", value: null, rate: null },
+    { key: "purchased", label: "شراء بعد المتابعة", value: null, rate: null },
+  ];
+}
+
+function buildFollowupResults(rows: FollowupPerformanceSummary[]): DashboardResultSlice[] {
+  const totals = sumFollowups(rows);
+  return [
+    { key: "completed", label: "تم التواصل", value: totals.completedCount, color: "#00AFA5" },
+    { key: "no_answer", label: "لم يرد", value: totals.noAnswerCount, color: "#EF4444" },
+    { key: "postponed", label: "مؤجل", value: totals.postponedCount, color: "#F59E0B" },
+    { key: "needs_manager", label: "يحتاج مدير", value: totals.needsManagerCount, color: "#8B5CF6" },
+  ];
+}
+
+async function fetchCustomerPreview(branch: string): Promise<DashboardCustomerPreview> {
+  let query = supabase
+    .from("customer_metrics_summary")
+    .select("customer_code,customer_name,customer_phone,branch,segment,customer_status,total_spent,avg_monthly,last_purchase")
+    .not("customer_name", "is", null)
+    .order("avg_monthly", { ascending: false })
+    .limit(1);
+
+  if (branch && branch !== "all") query = query.eq("branch", branch);
+
+  const { data, error } = await query;
+  if (error) {
+    return {
+      name: null,
+      code: null,
+      phone: null,
+      branch: null,
+      segment: null,
+      status: null,
+      totalSpent: null,
+      avgMonthly: null,
+      lastPurchase: null,
+      source: "customer_metrics_summary",
+      error: error.message,
+    };
+  }
+  const row = (data?.[0] ?? null) as Row | null;
+  return {
+    name: readFirst(row, ["customer_name"], null) as string | null,
+    code: readFirst(row, ["customer_code"], null) as string | null,
+    phone: readFirst(row, ["customer_phone"], null) as string | null,
+    branch: readFirst(row, ["branch"], null) as string | null,
+    segment: readFirst(row, ["segment"], null) as string | null,
+    status: readFirst(row, ["customer_status"], null) as string | null,
+    totalSpent: row ? toNumber(readFirst(row, ["total_spent"], 0)) : null,
+    avgMonthly: row ? toNumber(readFirst(row, ["avg_monthly"], 0)) : null,
+    lastPurchase: readFirst(row, ["last_purchase"], null) as string | null,
+    source: "customer_metrics_summary",
+    error: null,
+  };
+}
+
+async function fetchLatestInvoices(startDate: string, endDate: string, branch: string): Promise<{ rows: DashboardInvoicePreview[]; error: string | null }> {
+  let query = supabase
+    .from("sales_invoices")
+    .select("id,invoice_number,invoice_no,invoice_date,net_amount,discounted_amount,amount,branch")
+    .gte("invoice_date", startDate)
+    .lt("invoice_date", `${endDate}T23:59:59`)
+    .order("invoice_date", { ascending: false })
+    .limit(5);
+
+  if (branch && branch !== "all") query = query.eq("branch", branch);
+  const { data, error } = await query;
+  if (error) return { rows: [], error: error.message };
+  return {
+    rows: ((data ?? []) as Row[]).map((row) => ({
+      id: String(readFirst(row, ["id"], crypto.randomUUID())),
+      invoiceNumber: readFirst(row, ["invoice_number", "invoice_no"], null) as string | null,
+      invoiceDate: readFirst(row, ["invoice_date"], null) as string | null,
+      amount: toNumber(readFirst(row, ["net_amount", "discounted_amount", "amount"], 0)),
+      branch: readFirst(row, ["branch"], null) as string | null,
+    })),
+    error: null,
+  };
+}
+
+function buildDeliveryTracking(rows: DeliveryPerformanceSummary[]) {
+  const totalOrders = rows.reduce((sum, row) => sum + row.deliveriesCount, 0);
+  const deliverySales = rows.reduce((sum, row) => sum + row.deliverySalesTotal, 0);
+  const topStaff = [...rows].sort((a, b) => b.deliveriesCount - a.deliveriesCount)[0]?.deliveryStaff || null;
+  return {
+    totalOrders,
+    deliverySales,
+    topStaff,
+    source: "delivery_performance_summary",
+  };
+}
+
 export async function loadExecutiveDashboardData(params: {
   startDate: string;
   endDate: string;
@@ -259,9 +430,11 @@ export async function loadExecutiveDashboardData(params: {
   if (!params.forceRefresh && dashboardCache.has(key)) return dashboardCache.get(key)!;
 
   const errorsBySection: Record<string, string> = {};
-  const [summaryResult, trackingResult] = await Promise.allSettled([
+  const [summaryResult, trackingResult, customerPreviewResult, latestInvoicesResult] = await Promise.allSettled([
     fetchExecutiveDashboardSummary(params),
     loadOperationalTracking(errorsBySection),
+    fetchCustomerPreview(params.branch),
+    fetchLatestInvoices(params.startDate, params.endDate, params.branch),
   ]);
 
   if (summaryResult.status === "rejected") {
@@ -271,6 +444,10 @@ export async function loadExecutiveDashboardData(params: {
   const summary = summaryResult.value;
   const tracking = trackingResult.status === "fulfilled" ? trackingResult.value : { stagnantItems: [], listItems: [] };
   if (trackingResult.status === "rejected") errorsBySection.operationalTracking = "تعذر تحميل متابعة الرواكد واللستة";
+  const customerPreview = customerPreviewResult.status === "fulfilled" ? customerPreviewResult.value : null;
+  if (customerPreviewResult.status === "rejected") errorsBySection.customerPreview = "تعذر تحميل معاينة العميل";
+  const latestInvoices = latestInvoicesResult.status === "fulfilled" ? latestInvoicesResult.value : { rows: [], error: "تعذر تحميل آخر الفواتير" };
+  if (latestInvoices.error) errorsBySection.latestInvoicesPreview = "تعذر تحميل آخر الفواتير";
 
   const data: ExecutiveDashboardData = {
     summary,
@@ -278,11 +455,18 @@ export async function loadExecutiveDashboardData(params: {
     salesTrend: buildSalesTrend(summary.dailySales, params.mode, params.startDate, params.endDate),
     branchPerformance: buildBranchPerformance(summary.dailySales),
     doctorPerformance: [...summary.staffSales].sort((a, b) => b.netTotal - a.netTotal).slice(0, 10),
+    followupFunnel: buildFollowupFunnel(summary.followupPerformance),
+    followupResults: buildFollowupResults(summary.followupPerformance),
     customerServiceImpact: summary.followupPerformance,
     customerAnalytics: summary.customerIntelligence,
     stagnantItems: tracking.stagnantItems,
     listItems: tracking.listItems,
+    stagnantTracking: tracking.stagnantItems,
+    listItemTracking: tracking.listItems,
     deliveryPerformance: summary.deliveryPerformance,
+    deliveryTracking: buildDeliveryTracking(summary.deliveryPerformance),
+    customerPreview,
+    latestInvoicesPreview: latestInvoices.rows,
     dataHealth: summary.dataHealth,
     quickDecisionItems: summary.actionCenter,
     sourceHealth: summary.sourceHealth,

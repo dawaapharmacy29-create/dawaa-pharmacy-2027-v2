@@ -2,6 +2,12 @@ import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { ALL_FILTER, getCustomers, normalizeCustomerMetric, type CustomerMetric } from "@/lib/api/customers";
 import { normalizeBranchName } from "@/lib/branch";
 import { getBestCustomerPhone, isValidEgyptPhone } from "@/lib/customerAnalyticsService";
+import {
+  buildCustomerSearchPattern,
+  buildPhoneSearchVariants,
+  enrichFollowupsWithCustomerData,
+  isAllFilter,
+} from "@/lib/customerFollowupEnrichmentService";
 
 export type FollowupRow = {
   id: string;
@@ -185,10 +191,7 @@ function toNumber(value: unknown) {
 }
 
 function normalizeSearchPattern(search: string) {
-  const trimmed = search.replace(/\s+/g, " ").trim();
-  if (!trimmed) return null;
-  const safe = trimmed.replace(/[%,()]/g, "").replace(/\*/g, "%");
-  return safe.includes("%") ? safe : `%${safe}%`;
+  return buildCustomerSearchPattern(search);
 }
 
 function normalizeDigits(value: string) {
@@ -199,13 +202,7 @@ function normalizeDigits(value: string) {
 }
 
 function phoneVariants(search: string) {
-  const digits = normalizeDigits(search);
-  if (digits.length < 7) return [];
-  const values = new Set<string>([digits]);
-  if (digits.startsWith("01")) values.add(`20${digits}`);
-  if (digits.startsWith("201")) values.add(digits.slice(1));
-  if (digits.startsWith("00201")) values.add(digits.slice(2));
-  return [...values];
+  return buildPhoneSearchVariants(search);
 }
 
 function extractCodeLikePhone(value?: string | null) {
@@ -302,95 +299,7 @@ function enrichFollowup(row: FollowupRow, metrics: CustomerMetric | null): Follo
 }
 
 async function loadMetricsForFollowups(rows: FollowupRow[]) {
-  const codeValues = [...new Set(rows.flatMap((row) => [
-    row.customer_code,
-    extractCodeLikePhone(row.customer_phone),
-    extractCodeLikePhone(row.phone),
-  ]).filter(Boolean).map(String))].slice(0, 100);
-  const phoneValues = [...new Set(rows.flatMap((row) => [row.customer_phone, row.phone])
-    .filter((phone) => isValidEgyptPhone(phone, rowCustomerCode(rows, phone)))
-    .map(String))].slice(0, 100);
-  if (!codeValues.length && !phoneValues.length) return rows;
-
-  const summaryClauses = [
-    ...codeValues.map((code) => `customer_code.eq.${code}`),
-    ...phoneValues.map((phone) => `customer_phone.eq.${phone}`),
-  ];
-  const profileClauses = [
-    ...codeValues.map((code) => `customer_code.eq.${code}`),
-    ...phoneValues.map((phone) => `customer_phone.eq.${phone}`),
-    ...phoneValues.map((phone) => `phone.eq.${phone}`),
-    ...phoneValues.map((phone) => `phone_alt.eq.${phone}`),
-    ...phoneValues.map((phone) => `whatsapp_phone.eq.${phone}`),
-  ];
-
-  const [summaryResult, profileResult] = await Promise.all([
-    supabase
-      .from("customer_metrics_summary")
-      .select("final_customer_key,customer_id,customer_code,customer_name,customer_phone,branch,invoices_count,total_spent,avg_invoice,first_purchase,last_purchase,active_months,avg_monthly,segment,customer_status")
-      .or(summaryClauses.join(","))
-      .limit(250),
-    supabase
-      .from("customers")
-      .select("id,customer_id,customer_code,customer_name,customer_phone,phone,customer_flags,customer_notes,service_notes,team_notes,handling_notes,whatsapp_notes,address,phone_alt,whatsapp_phone")
-      .or(profileClauses.join(","))
-      .limit(250),
-  ]);
-
-  if (summaryResult.error || profileResult.error) {
-    return rows;
-  }
-
-  const summaryData = (summaryResult.data ?? []) as Row[];
-  const profileData = (profileResult.data ?? []) as Row[];
-
-  const byCode = new Map<string, CustomerMetric>();
-  const byPhone = new Map<string, CustomerMetric>();
-  for (const raw of summaryData) {
-    const metric = normalizeCustomerMetric(raw);
-    if (metric.customer_code) byCode.set(metric.customer_code, metric);
-    if (metric.customer_phone) byPhone.set(metric.customer_phone, metric);
-  }
-
-  const profilesByKey = new Map<string, Row>();
-  for (const profile of profileData) {
-    const code = String(profile.customer_code || "");
-    const phone = String(profile.customer_phone || profile.phone || profile.phone_alt || profile.whatsapp_phone || "");
-    if (code) profilesByKey.set(`code:${code}`, profile);
-    if (phone) profilesByKey.set(`phone:${phone}`, profile);
-  }
-
-  return rows.map((row) => {
-    const customerMetric = (row.customer_code && byCode.get(row.customer_code))
-      || (row.customer_phone && byPhone.get(row.customer_phone))
-      || (row.phone && byPhone.get(row.phone))
-      || null;
-
-    const profileKey = row.customer_code ? `code:${row.customer_code}` : row.customer_phone ? `phone:${row.customer_phone}` : row.phone ? `phone:${row.phone}` : "";
-    const profile = profileKey ? profilesByKey.get(profileKey) : null;
-
-    let enriched = enrichFollowup(row, customerMetric);
-    if (profile) {
-      const bestPhone = getBestCustomerPhone(enriched, customerMetric, profile);
-      enriched = {
-        ...enriched,
-        customer_flags: profile.customer_flags as Record<string, boolean> | null,
-        customer_notes: profile.customer_notes as string | null,
-        service_notes: profile.service_notes as string | null,
-        team_notes: profile.team_notes as string | null,
-        handling_notes: profile.handling_notes as string | null,
-        whatsapp_notes: profile.whatsapp_notes as string | null,
-        address: profile.address as string | null,
-        phone_alt: profile.phone_alt as string | null,
-        whatsapp_phone: profile.whatsapp_phone as string | null,
-        customer_name: enriched.customer_name || String(profile.customer_name || ""),
-        customer_phone: bestPhone || enriched.customer_phone,
-        phone: bestPhone || enriched.phone,
-      };
-    }
-
-    return enriched;
-  });
+  return enrichFollowupsWithCustomerData(rows);
 }
 
 function rowCustomerCode(rows: FollowupRow[], phone: unknown) {
@@ -401,21 +310,20 @@ function rowCustomerCode(rows: FollowupRow[], phone: unknown) {
 export async function searchCustomerMetrics(search: string, branch?: string): Promise<CustomerServiceSearchResult[]> {
   const metricResult = await getCustomers({
     search,
-    branch: branch && branch !== ALL_FILTER ? branch : ALL_FILTER,
+    branch: !isAllFilter(branch) ? branch : ALL_FILTER,
     limit: 30,
     offset: 0,
   }).then((result) => result.customers);
 
   const pattern = normalizeSearchPattern(search);
   const variants = phoneVariants(search);
-  const branchFilter = branch && branch !== ALL_FILTER ? branch : "";
+  const branchFilter = !isAllFilter(branch) ? branch : "";
   const profileClauses = [
     pattern ? `customer_code.ilike.${pattern}` : "",
     pattern ? `customer_name.ilike.${pattern}` : "",
     pattern ? `name.ilike.${pattern}` : "",
     pattern ? `final_customer_key.ilike.${pattern}` : "",
     ...variants.flatMap((phone) => [
-      `customer_phone.eq.${phone}`,
       `phone.eq.${phone}`,
       `phone_alt.eq.${phone}`,
       `whatsapp_phone.eq.${phone}`,
@@ -425,7 +333,7 @@ export async function searchCustomerMetrics(search: string, branch?: string): Pr
   const profileQuery = profileClauses.length
     ? supabase
       .from("customers")
-      .select("id,customer_id,final_customer_key,customer_code,customer_name,name,customer_phone,phone,whatsapp_phone,phone_alt,branch,address,customer_flags,customer_notes,service_notes,team_notes,handling_notes,whatsapp_notes")
+      .select("id,customer_code,name,phone,whatsapp_phone,phone_alt,branch,address,customer_flags,customer_notes,service_notes,team_notes,handling_notes,whatsapp_notes")
       .or(profileClauses.join(","))
       .limit(30)
     : Promise.resolve({ data: [], error: null } as any);
