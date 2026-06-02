@@ -438,6 +438,33 @@ export default function Invoices() {
     : 0;
 
   const rowsForPreview = parseResult?.rows.slice(0, 120) ?? [];
+  const importWarningGroups = useMemo(() => {
+    const messages = Array.from(new Set((importSummary?.errors || []).map((error) => error.message).filter(Boolean)));
+    const critical = messages.filter(
+      (message) =>
+        !message.includes("مكررة") &&
+        !message.includes("schema cache") &&
+        !message.includes("staff_id"),
+    );
+    const dataWarnings = [
+      ...(importSummary && importSummary.skippedDuplicates > 0
+        ? ["يوجد فواتير مكررة تحتاج مراجعة، وتم تخطيها أثناء الاستيراد."]
+        : []),
+      ...messages.filter((message) => message.includes("مكررة")),
+    ];
+    const recommendations = [
+      ...(importSummary?.schemaWarnings || []),
+      ...(importSummary?.summaryRefreshStatus === "unavailable" && importSummary.summaryRefreshMessage
+        ? [importSummary.summaryRefreshMessage]
+        : []),
+    ];
+
+    return {
+      critical: Array.from(new Set(critical)),
+      dataWarnings: Array.from(new Set(dataWarnings)),
+      recommendations: Array.from(new Set(recommendations)),
+    };
+  }, [importSummary]);
 
   return (
     <div className="space-y-5 max-w-5xl">
@@ -812,6 +839,7 @@ export default function Invoices() {
                 <ResultTile value={importSummary.unlinkedCustomersEstimate} label="ربط عميل ضعيف" />
                 <ResultTile value={importSummary.unmatchedCustomerRows || 0} label="عميل غير مسجل" />
                 <ResultTile value={importSummary.zeroAmountRows || 0} label="فواتير صفرية" />
+                <ResultTile value={errorCount} label="صفوف غير صالحة" />
                 <ResultTile value={importSummary.distinctInvoicesInFile || 0} label="فواتير مميزة بالملف" />
                 <ResultTile value={importSummary.invoicesWithoutCustomer || 0} label="بدون عميل" />
                 <ResultTile value={importSummary.invoicesWithoutDoctor || 0} label="بدون دكتور" />
@@ -881,20 +909,28 @@ export default function Invoices() {
               )}
             </div>
           )}
-          {(importSummary.schemaWarnings?.length || 0) > 0 && (
-            <div className="rounded-xl border border-amber-300/30 bg-amber-400/10 p-4">
-              <div className="mb-3 font-bold text-amber-100">تحذيرات الربط و Supabase schema cache</div>
-              <div className="space-y-2">
-                {(importSummary.schemaWarnings || []).map((warning, index) => (
-                  <div key={index} className="rounded-lg bg-slate-950/20 px-3 py-2 text-sm text-amber-50">{warning}</div>
-                ))}
-              </div>
-            </div>
-          )}
-          {importSummary.errors.length > 0 && (
-            <div className="rounded-xl border border-red-300/35 bg-red-500/15 p-4 space-y-2">
-              <div className="font-bold text-red-100">تحذيرات تحتاج مراجعة</div>
-              {importSummary.errors.slice(0, 20).map((error, index) => <div key={index} className="rounded-lg bg-slate-950/25 px-3 py-2 text-sm text-red-50">{error.message}</div>)}
+          {(importWarningGroups.critical.length > 0 ||
+            importWarningGroups.dataWarnings.length > 0 ||
+            importWarningGroups.recommendations.length > 0) && (
+            <div className="grid gap-3 lg:grid-cols-3">
+              <WarningGroup
+                title="أخطاء حرجة"
+                tone="danger"
+                items={importWarningGroups.critical}
+                emptyText="لا توجد أخطاء حرجة"
+              />
+              <WarningGroup
+                title="تحذيرات بيانات"
+                tone="warning"
+                items={importWarningGroups.dataWarnings}
+                emptyText="لا توجد تحذيرات بيانات"
+              />
+              <WarningGroup
+                title="توصيات"
+                tone="info"
+                items={importWarningGroups.recommendations}
+                emptyText="لا توجد توصيات إضافية"
+              />
             </div>
           )}
           <button onClick={handleReset} className="btn-primary flex items-center gap-2"><RefreshCw size={16} /> استيراد ملف آخر</button>
@@ -1008,6 +1044,37 @@ function ResultTile({ value, label }: { value: number; label: string }) {
     <div className="bg-teal-500/10 border border-white/5 rounded-2xl p-4">
       <div className="text-xl font-bold text-teal-400 num">{value.toLocaleString("ar-EG")}</div>
       <div className="text-slate-400 text-xs mt-1">{label}</div>
+    </div>
+  );
+}
+
+function WarningGroup({
+  title,
+  items,
+  emptyText,
+  tone,
+}: {
+  title: string;
+  items: string[];
+  emptyText: string;
+  tone: "danger" | "warning" | "info";
+}) {
+  const styles = {
+    danger: "border-red-300/35 bg-red-500/15 text-red-50",
+    warning: "border-amber-300/35 bg-amber-400/10 text-amber-50",
+    info: "border-sky-300/35 bg-sky-400/10 text-sky-50",
+  }[tone];
+
+  return (
+    <div className={`rounded-xl border p-4 ${styles}`}>
+      <div className="mb-3 font-bold">{title}</div>
+      <div className="space-y-2">
+        {(items.length > 0 ? items : [emptyText]).slice(0, 8).map((item, index) => (
+          <div key={`${title}-${index}`} className="rounded-lg bg-slate-950/25 px-3 py-2 text-sm">
+            {item}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

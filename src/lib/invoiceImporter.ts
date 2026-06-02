@@ -1307,30 +1307,34 @@ export async function importInvoicesToDB(
     branch: row.branch || branch,
     invoice_number: row.invoiceNumber,
     invoice_date: row.date,
-    amount: row.amount,
   }));
 
-  const invoiceNumbers = [
-    ...new Set(invoiceKeys.map((row) => row.invoice_number).filter(Boolean)),
-  ];
   const existingInvoices: Array<{
     branch: string;
     invoice_number: string;
     invoice_date: string;
-    amount: number;
   }> = [];
 
-  for (const chunk of chunkArray(invoiceNumbers, 500)) {
+  const invoiceDates = [...new Set(invoiceKeys.map((row) => row.invoice_date).filter(Boolean))];
+  for (const dateChunk of chunkArray(invoiceDates, 20)) {
+    const dateScopedKeys = invoiceKeys.filter((row) => dateChunk.includes(row.invoice_date));
+    const branchValues = [...new Set(dateScopedKeys.map((row) => row.branch).filter(Boolean))];
+    const invoiceNumbers = [...new Set(dateScopedKeys.map((row) => row.invoice_number).filter(Boolean))];
+    if (branchValues.length === 0 || invoiceNumbers.length === 0) continue;
+
     const { data, error } = await supabase
       .from("sales_invoices")
-      .select("branch, invoice_number, invoice_date, amount")
-      .in("invoice_number", chunk);
+      .select("branch, invoice_number, invoice_date")
+      .in("invoice_date", dateChunk)
+      .in("branch", branchValues)
+      .in("invoice_number", invoiceNumbers)
+      .limit(5000);
 
     if (error) {
       summary.errors.push({
         row: 0,
         field: "فحص التكرار",
-        message: error.message,
+        message: friendlyImportError(error.message),
       });
       break;
     }
@@ -1340,7 +1344,6 @@ export async function importInvoicesToDB(
         branch: string;
         invoice_number: string;
         invoice_date: string;
-        amount: number;
       }>),
     );
   }
@@ -1469,6 +1472,21 @@ export async function importInvoicesToDB(
             summary.importedNetSales = (summary.importedNetSales || 0) + invoiceNetValue(record);
           }
         }
+        reportProgress(
+          onProgress,
+          Math.min(i + chunkSize, invoiceRecords.length),
+          totalWork,
+        );
+        continue;
+      }
+      if (isDuplicateError && chunk.length === 1) {
+        const record = chunk[0];
+        summary.skippedDuplicates++;
+        summary.skippedDuplicateInvoices?.push({
+          invoiceNumber: String(record.invoice_number || ""),
+          branch: String(record.branch || branch),
+          date: String(record.invoice_date || "").slice(0, 10),
+        });
         reportProgress(
           onProgress,
           Math.min(i + chunkSize, invoiceRecords.length),
@@ -1789,6 +1807,10 @@ export async function importInvoicesToDB(
   }
   summary.dailyCounts = [...daily.values()].sort((a, b) => a.date.localeCompare(b.date));
   summary.branchCounts = [...branches.values()].sort((a, b) => b.count - a.count);
+  summary.schemaWarnings = Array.from(new Set(summary.schemaWarnings || []));
+  summary.errors = Array.from(
+    new Map(summary.errors.map((error) => [`${error.field}|${error.message}`, error])).values(),
+  );
   summary.rejectedRows = summary.errors.length;
 
   return summary;
