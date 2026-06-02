@@ -91,6 +91,7 @@ export default function Invoices() {
   const [editForm, setEditForm] = useState<InvoiceEditForm | null>(null);
   const [duplicateAudit, setDuplicateAudit] = useState<DuplicateInvoiceGroup[]>([]);
   const [duplicateAuditLoading, setDuplicateAuditLoading] = useState(false);
+  const [summaryRefreshBusy, setSummaryRefreshBusy] = useState(false);
   useEscapeKey(() => {
     setEditInvoice(null);
     setEditForm(null);
@@ -261,6 +262,28 @@ export default function Invoices() {
     setImportSummary(null);
     setProgress(0);
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const rebuildSalesSummaries = async (range?: { startDate?: string | null; endDate?: string | null }) => {
+    const startDate = range?.startDate || importSummary?.firstInvoiceDate || invoiceBatches[0]?.firstDate;
+    const endDate = range?.endDate || importSummary?.lastInvoiceDate || invoiceBatches[0]?.lastDate;
+    if (!startDate || !endDate || startDate === "-" || endDate === "-") {
+      toast.error("لا يوجد مدى تاريخ واضح لتحديث الملخصات");
+      return;
+    }
+
+    setSummaryRefreshBusy(true);
+    const { error } = await supabase.rpc("rebuild_sales_daily_summary", {
+      p_start_date: startDate,
+      p_end_date: endDate,
+    });
+    setSummaryRefreshBusy(false);
+
+    if (error) {
+      toast.error(`تعذر تحديث ملخصات المبيعات: ${error.message}`);
+      return;
+    }
+    toast.success(`تم تحديث ملخصات المبيعات من ${startDate} إلى ${endDate}`);
   };
 
   const invoiceBatches = useMemo(() => {
@@ -856,6 +879,17 @@ export default function Invoices() {
                 <div className="mt-2 text-sm text-teal-50/85">
                   {importSummary.summaryRefreshMessage || "لم يتم طلب تحديث ملخصات إضافي."}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => rebuildSalesSummaries({
+                    startDate: importSummary.firstInvoiceDate,
+                    endDate: importSummary.lastInvoiceDate,
+                  })}
+                  disabled={summaryRefreshBusy}
+                  className="mt-3 rounded-xl border border-teal-200/40 bg-teal-300/15 px-4 py-2 text-sm font-bold text-teal-50 hover:bg-teal-300/25 disabled:opacity-50"
+                >
+                  {summaryRefreshBusy ? "جاري تحديث الملخصات..." : "تحديث الملخصات"}
+                </button>
               </div>
               <div className="rounded-xl border border-sky-300/25 bg-sky-400/10 p-4">
                 <div className="font-bold text-sky-100">ربط الدكاترة</div>
