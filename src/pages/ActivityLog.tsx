@@ -33,13 +33,13 @@ interface ActivityLogEntry {
 const ALL = "Ø§Ù„ÙƒÙ„";
 
 const MODULE_COLORS: Record<string, string> = {
-  Ø§Ù„Ù†Ø¸Ø§Ù…: "badge-info",
-  Ø§Ù„Ù†Ù‚Ø§Ø·: "badge-success",
-  Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡: "badge-purple",
+  "Ø§Ù„Ù†Ø¸Ø§Ù…": "badge-info",
+  "Ø§Ù„Ù†Ù‚Ø§Ø·": "badge-success",
+  "Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡": "badge-purple",
   "Ø®Ø¯Ù…Ø© Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡": "badge-info",
-  Ø§Ù„ÙÙˆØ§ØªÙŠØ±: "badge-warning",
-  Ø§Ù„ØªÙˆØµÙŠÙ„: "bg-amber-500/15 border-amber-500/25 text-amber-400 text-xs font-semibold px-2.5 py-0.5 rounded-full border",
-  Ø§Ù„ÙØ±ÙŠÙ‚: "bg-purple-500/15 border-purple-500/25 text-purple-400 text-xs font-semibold px-2.5 py-0.5 rounded-full border",
+  "Ø§Ù„ÙÙˆØ§ØªÙŠØ±": "badge-warning",
+  "Ø§Ù„ØªÙˆØµÙŠÙ„": "bg-amber-500/15 border-amber-500/25 text-amber-400 text-xs font-semibold px-2.5 py-0.5 rounded-full border",
+  "Ø§Ù„ÙØ±ÙŠÙ‚": "bg-purple-500/15 border-purple-500/25 text-purple-400 text-xs font-semibold px-2.5 py-0.5 rounded-full border",
   "ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ù…Ø­Ø§Ø¯Ø«Ø§Øª": "badge-info",
   "ØªÙ‚ÙŠÙŠÙ… Ø§Ù„Ø´ÙŠÙØªØ§Øª": "badge-warning",
   "Ø£Ø¯ÙˆÙŠØ© Ø§Ù„Ø­ÙˆØ§ÙØ²": "bg-teal-500/15 border-teal-500/25 text-teal-400 text-xs font-semibold px-2.5 py-0.5 rounded-full border",
