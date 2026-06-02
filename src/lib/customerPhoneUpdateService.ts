@@ -75,7 +75,64 @@ function normalizeRow(row: Record<string, unknown>): CustomerPhoneCsvRow {
   };
 }
 
+function parseCsvText(text: string): Record<string, string>[] {
+  const rows: string[][] = [];
+  let current = "";
+  let row: string[] = [];
+  let inQuotes = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
+
+    if (char === "\"") {
+      if (inQuotes && next === "\"") {
+        current += "\"";
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === "," && !inQuotes) {
+      row.push(current);
+      current = "";
+      continue;
+    }
+
+    if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && next === "\n") index += 1;
+      row.push(current);
+      if (row.some((cell) => cell.trim() !== "")) rows.push(row);
+      row = [];
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  row.push(current);
+  if (row.some((cell) => cell.trim() !== "")) rows.push(row);
+
+  const headers = (rows.shift() || []).map((header) => header.trim());
+  return rows.map((cells) => {
+    const record: Record<string, string> = {};
+    headers.forEach((header, index) => {
+      record[header] = String(cells[index] ?? "").trim();
+    });
+    return record;
+  });
+}
+
 export async function parseCustomerPhoneCsv(file: File): Promise<CustomerPhoneCsvRow[]> {
+  if (file.name.toLowerCase().endsWith(".csv")) {
+    const text = await file.text();
+    const rows = parseCsvText(text);
+    return rows.map(normalizeRow).filter((row) => row.customer_id || row.customer_code || row.final_customer_key || row.customer_name || row.new_phone || row.new_whatsapp_phone);
+  }
+
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array" });
   const firstSheet = workbook.SheetNames[0];

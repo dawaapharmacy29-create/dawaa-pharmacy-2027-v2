@@ -56,6 +56,7 @@ export interface GetCustomersOptions {
 
 export interface CustomerStats {
   total: number;
+  summaryTotal: number;
   veryImportant: number;
   important: number;
   medium: number;
@@ -377,6 +378,14 @@ async function countRows(options: GetCustomersOptions = {}) {
   return count ?? 0;
 }
 
+async function countRegisteredCustomers() {
+  const { count, error } = await supabase
+    .from("customers")
+    .select("id", { count: "exact", head: true });
+  if (error) throw new Error(`customers: ${error.message}`);
+  return count ?? 0;
+}
+
 export async function getCustomerStats(): Promise<CustomerStats> {
   if (!isSupabaseConfigured) {
     throw new Error("إعدادات Supabase غير موجودة.");
@@ -387,7 +396,8 @@ export async function getCustomerStats(): Promise<CustomerStats> {
   }
 
   const [
-    total,
+    registeredTotal,
+    summaryTotal,
     veryImportant,
     important,
     medium,
@@ -398,6 +408,7 @@ export async function getCustomerStats(): Promise<CustomerStats> {
     stopped,
     noPurchase,
   ] = await Promise.all([
+    countRegisteredCustomers(),
     countRows(),
     countRows({ type: "مهم جدًا" }),
     countRows({ type: "مهم" }),
@@ -411,11 +422,12 @@ export async function getCustomerStats(): Promise<CustomerStats> {
   ]);
 
   if (import.meta.env.DEV) {
-    console.log("[getCustomerStats] Complete:", { total, veryImportant, important, medium, normal, newC, active, atRisk, stopped, noPurchase });
+    console.log("[getCustomerStats] Complete:", { registeredTotal, summaryTotal, veryImportant, important, medium, normal, newC, active, atRisk, stopped, noPurchase });
   }
 
   return {
-    total,
+    total: registeredTotal,
+    summaryTotal,
     veryImportant,
     important,
     medium,

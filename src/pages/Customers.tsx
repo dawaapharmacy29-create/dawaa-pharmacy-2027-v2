@@ -45,6 +45,7 @@ const PAGE_SIZE = 30;
 
 const EMPTY_STATS: CustomerStats = {
   total: 0,
+  summaryTotal: 0,
   veryImportant: 0,
   important: 0,
   medium: 0,
@@ -194,7 +195,8 @@ export default function Customers() {
   const showingTo = Math.min(page * PAGE_SIZE, totalCount);
 
   const cards = useMemo(() => [
-    { label: "إجمالي العملاء", value: stats.total, type: ALL_FILTER, status: ALL_FILTER, tone: "slate" as const },
+    { label: "إجمالي العملاء المسجلين", value: stats.total, type: ALL_FILTER, status: ALL_FILTER, tone: "slate" as const },
+    { label: "عملاء لهم مشتريات", value: stats.summaryTotal, type: ALL_FILTER, status: ALL_FILTER, tone: "teal" as const },
     { label: "مهم جدًا", value: stats.veryImportant, type: "مهم جدًا", status: ALL_FILTER, tone: "violet" as const },
     { label: "مهم", value: stats.important, type: "مهم", status: ALL_FILTER, tone: "amber" as const },
     { label: "متوسط", value: stats.medium, type: "متوسط", status: ALL_FILTER, tone: "blue" as const },
@@ -220,7 +222,7 @@ export default function Customers() {
           <p className="mt-1 text-sm font-semibold text-slate-600">تصنيف سريع ودقيق من ملخصات العملاء بدون تحميل كل الفواتير</p>
         </div>
         <div className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm font-black text-teal-800">
-          {refreshing ? "جاري تحديث النتائج..." : `${showingFrom}-${showingTo} من ${totalCount}`}
+          {refreshing ? "جاري تحديث النتائج..." : `${showingFrom}-${showingTo} من ${totalCount} في ملخص المشترين`}
         </div>
       </section>
 
