@@ -77,6 +77,8 @@ begin
       select (array_agg(c.id order by c.id::text))[1] as unique_id, count(*) as matches_count
       from public.customers c
       where by_id.id is null and by_code.unique_id is null and by_final_code.unique_id is null
+        and n.customer_code is null
+        and n.final_customer_code is null
         and coalesce(n.new_phone, n.new_whatsapp_phone, n.phone_alt) is not null
         and (
           public.dawaa_normalize_egypt_mobile(c.phone, c.customer_code) in (n.new_phone, n.new_whatsapp_phone, n.phone_alt)
@@ -279,10 +281,6 @@ begin
   )
   into v_result
   from tmp_daily_customer_import;
-
-  if p_apply then
-    perform public.rebuild_customer_metrics_summary();
-  end if;
 
   return v_result;
 end;

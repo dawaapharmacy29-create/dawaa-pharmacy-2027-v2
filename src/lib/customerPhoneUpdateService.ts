@@ -402,12 +402,11 @@ export async function previewCustomerPhoneUpdate(rows: CustomerPhoneCsvRow[]): P
     p_apply: false,
   });
   if (error) {
-    const fallback = await supabase.rpc("safe_customer_phone_update_from_json", {
-      p_rows: rows,
-      p_apply: false,
-    });
-    if (fallback.error) throw new Error(error.message);
-    return { ...(fallback.data as CustomerPhoneUpdateResult), invalidSummaryPhoneCountBefore: invalidBefore };
+    throw new Error(
+      error.message.includes("function")
+        ? "دالة الاستيراد اليومي غير مفعلة في قاعدة البيانات. شغّل SQL الخاص بـ safe_daily_customer_import_from_json أولًا."
+        : error.message,
+    );
   }
   return { ...(data as CustomerPhoneUpdateResult), invalidSummaryPhoneCountBefore: invalidBefore };
 }
@@ -420,9 +419,20 @@ export async function applyCustomerPhoneUpdate(
     p_rows: rows,
     p_apply: true,
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    throw new Error(
+      error.message.includes("statement timeout")
+        ? "انتهى وقت عملية تحديث العملاء. تم فصل تحديث الملخصات عن العملية، تأكد أن SQL الجديد مطبق ثم أعد المحاولة."
+        : error.message.includes("function")
+          ? "دالة الاستيراد اليومي غير مفعلة في قاعدة البيانات. شغّل SQL الخاص بـ safe_daily_customer_import_from_json أولًا."
+          : error.message,
+    );
+  }
 
   const result = data as CustomerPhoneUpdateResult;
+
+  const refresh = await supabase.rpc("rebuild_customer_metrics_summary");
+  result.metricsRefreshed = !refresh.error;
 
   clearCustomersCache();
   clearCustomerServiceCommandCenterCache();
@@ -431,7 +441,6 @@ export async function applyCustomerPhoneUpdate(
   clearExecutiveDashboardCache();
   clearSalesAnalyticsSummaryCache();
   result.cacheInvalidated = true;
-  result.metricsRefreshed = true;
   result.invalidSummaryPhoneCountAfter = await countInvalidCustomerSummaryPhones();
 
   await logActivity({
