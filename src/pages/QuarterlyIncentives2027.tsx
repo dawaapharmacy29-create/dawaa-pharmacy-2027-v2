@@ -4,7 +4,7 @@ import { formatMoney, formatNumber } from "@/lib/dawaa2027";
 import {
   loadQuarterlyIncentiveSummary,
   type QuarterlyIncentiveSummary,
-} from "@/lib/incentives/quarterlyIncentiveService";
+} from "@/lib/performance/quarterlyIncentiveService";
 
 export default function QuarterlyIncentives2027() {
   const [summary, setSummary] = useState<QuarterlyIncentiveSummary | null>(null);

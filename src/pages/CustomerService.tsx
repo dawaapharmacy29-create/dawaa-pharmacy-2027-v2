@@ -38,7 +38,7 @@ import { cleanEgyptianPhone, generateWhatsAppLink } from "@/lib/whatsapp";
 import { isValidEgyptPhone, getBestCustomerPhone } from "@/lib/customerAnalyticsService";
 import { getCustomerFullProfile, type CustomerFullProfile } from "@/lib/customerProfileService";
 import { normalizeBranchName } from "@/lib/branch";
-import { calculateMonthlyIncentive } from "@/lib/incentives/incentiveRulesEngine";
+import { calculateMonthlyIncentive } from "@/lib/performance/performanceRulesEngine";
 import { BRANCHES } from "@/lib/constants";
 import { logActivity } from "@/lib/activityLog";
 import { notifyCustomerServiceResponsible } from "@/lib/notificationService";

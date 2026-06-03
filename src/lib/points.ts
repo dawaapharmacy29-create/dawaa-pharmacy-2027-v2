@@ -1,6 +1,6 @@
 import { getEvaluationCycle } from "@/lib/evaluationCycle";
 import { INCENTIVE_CONFIG } from "@/lib/incentiveConfig";
-import { calculateMonthlyIncentive } from "@/lib/incentives/incentiveRulesEngine";
+import { calculateMonthlyIncentive } from "@/lib/performance/performanceRulesEngine";
 
 export const STARTING_POINTS = INCENTIVE_CONFIG.defaultTargetPoints;
 export const POINT_VALUE_EGP = INCENTIVE_CONFIG.pointValueEgp;

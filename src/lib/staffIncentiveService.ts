@@ -1,6 +1,6 @@
 import { getCurrentCycle, type PharmacyCycle } from "@/lib/pharmacy-cycle";
 import { STARTING_POINTS, MAX_BASE_INCENTIVE } from "@/lib/points";
-import { calculateMonthlyIncentive } from "@/lib/incentives/incentiveRulesEngine";
+import { calculateMonthlyIncentive } from "@/lib/performance/performanceRulesEngine";
 import {
   canonicalMaxPoints,
   canonicalSnapshotPoints,

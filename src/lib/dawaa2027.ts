@@ -1,6 +1,6 @@
 import { getCurrentCycle, getPointsCycle } from "@/lib/pharmacy-cycle";
 import { POINT_VALUE_EGP, STARTING_POINTS } from "@/lib/points";
-import { calculateMonthlyIncentive, calculateQuarterlyIncentive, calculateRepeatDeduction } from "@/lib/incentives/incentiveRulesEngine";
+import { calculateMonthlyIncentive, calculateQuarterlyIncentive, calculateRepeatDeduction } from "@/lib/performance/performanceRulesEngine";
 
 export const DAWAA_2027_NAME = "Dawaa Pharmacy 2027";
 export const MONTHLY_START_POINTS_2027 = 500;

@@ -2,7 +2,7 @@ import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { ALL_FILTER, getCustomers, normalizeCustomerMetric, type CustomerMetric } from "@/lib/api/customers";
 import { normalizeBranchName } from "@/lib/branch";
 import { getBestCustomerPhone, isValidEgyptPhone } from "@/lib/customerAnalyticsService";
-import { calculateMonthlyIncentive } from "@/lib/incentives/incentiveRulesEngine";
+import { calculateMonthlyIncentive } from "@/lib/performance/performanceRulesEngine";
 import {
   buildCustomerSearchPattern,
   buildPhoneSearchVariants,
