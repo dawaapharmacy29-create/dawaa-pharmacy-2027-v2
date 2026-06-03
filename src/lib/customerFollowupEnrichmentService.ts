@@ -184,6 +184,10 @@ export async function enrichFollowupsWithCustomerData<T extends EnrichableFollow
   });
 }
 
+export function clearCustomerFollowupEnrichmentCache() {
+  // Enrichment currently queries visible rows directly; this hook keeps import invalidation explicit.
+}
+
 export function buildCustomerSearchPattern(search: string) {
   const trimmed = search.replace(/\s+/g, " ").trim();
   if (!trimmed) return null;

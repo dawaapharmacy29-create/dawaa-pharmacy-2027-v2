@@ -67,6 +67,24 @@ function invoiceSalesValue(invoice: Pick<ManagedInvoiceRow, "net_amount" | "disc
   return 0;
 }
 
+function customerImportStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    existing_customer: "عميل موجود",
+    new_customer: "عميل جديد",
+    already_valid: "بيانات صالحة",
+    ready_to_update: "جاهز للتحديث",
+    unmatched: "غير مطابق",
+    invalid_phone: "رقم غير صالح",
+    invalid_row: "صف غير صالح",
+    duplicate_in_file: "مكرر في الملف",
+    needs_review_existing_phone: "مراجعة: هاتف مختلف",
+    needs_review_existing_whatsapp: "مراجعة: واتساب مختلف",
+    needs_review_existing_address: "مراجعة: عنوان مختلف",
+    needs_review_multiple_matches: "مراجعة: أكثر من تطابق",
+  };
+  return labels[status] || status;
+}
+
 interface InvoiceEditForm {
   branch: string;
   invoice_number: string;
@@ -362,19 +380,26 @@ export default function Invoices() {
     }
   };
 
-  const downloadPhoneUpdatePreviewReport = () => {
+  const downloadPhoneUpdatePreviewReport = (kind: "all" | "repair" | "review" | "invalid" | "unmatched" = "all") => {
     if (!phoneUpdateResult) return;
-    const headers = ["row_no", "customer_code", "customer_name", "branch", "new_phone", "new_whatsapp_phone", "status", "match_method", "would_update_phone", "would_update_whatsapp"];
+    const headers = ["row_no", "customer_code", "customer_name", "branch", "address", "new_phone", "new_whatsapp_phone", "phone_alt", "status", "match_method", "would_update_phone", "would_update_whatsapp", "would_update_phone_alt", "would_update_address", "would_update_name", "would_update_branch"];
+    const filteredRows = phoneUpdateResult.rows.filter((row) => {
+      if (kind === "repair") return row.status === "new_customer" || row.would_update_phone || row.would_update_whatsapp || row.would_update_phone_alt || row.would_update_address || row.would_update_name || row.would_update_branch;
+      if (kind === "review") return row.status.includes("review") || row.status === "duplicate_in_file";
+      if (kind === "invalid") return row.status === "invalid_phone" || row.status === "invalid_row";
+      if (kind === "unmatched") return row.status === "unmatched";
+      return true;
+    });
     const escapeCsv = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
     const lines = [
       headers.join(","),
-      ...phoneUpdateResult.rows.map((row) => headers.map((key) => escapeCsv((row as any)[key])).join(",")),
+      ...filteredRows.map((row) => headers.map((key) => escapeCsv((row as any)[key])).join(",")),
     ];
     const blob = new Blob([`\uFEFF${lines.join("\n")}`], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `customer-phone-preview-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `daily-customer-import-${kind}-${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -601,9 +626,9 @@ export default function Invoices() {
       <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5 space-y-4">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
-            <div className="section-title">تحديث أرقام العملاء من CSV / Excel</div>
+            <div className="section-title">استيراد وتحديث العملاء من CSV / Excel</div>
             <div className="text-sm text-slate-400">
-              يقبل CSV أو Excel، ويحدّث public.customers فقط، ولا يلمس sales_invoices أو customer_metrics_summary مباشرة.
+              يضيف العملاء الجدد ويصلح بيانات العملاء الموجودين في public.customers فقط، ولا يلمس sales_invoices أو customer_metrics_summary مباشرة.
             </div>
           </div>
           <div className="flex flex-col items-start gap-2">
@@ -617,7 +642,7 @@ export default function Invoices() {
               استخدم نفس الرقم للواتساب إذا كان واتساب فارغًا
             </label>
             <label className="btn-secondary flex w-fit cursor-pointer items-center gap-2">
-              <Upload size={15} /> اختيار ملف CSV / Excel
+              <Upload size={15} /> اختيار ملف العملاء
               <input
                 type="file"
                 accept=".csv,.xlsx,.xls"
@@ -635,7 +660,7 @@ export default function Invoices() {
 
         {phoneUpdateBusy && (
           <div className="flex items-center gap-2 rounded-xl border border-teal-300/25 bg-teal-400/10 px-4 py-3 text-sm text-teal-50">
-            <Loader2 size={16} className="animate-spin" /> جاري فحص ملف أرقام العملاء...
+            <Loader2 size={16} className="animate-spin" /> جاري فحص ملف العملاء وإنشاء معاينة آمنة...
           </div>
         )}
 
@@ -673,6 +698,11 @@ export default function Invoices() {
               <ResultTile value={phoneUpdateResult.invalidPhones} label="أرقام مرفوضة" />
               <ResultTile value={phoneUpdateResult.wouldUpdatePhone} label="سيحدث الهاتف" />
               <ResultTile value={phoneUpdateResult.wouldUpdateWhatsapp} label="سيحدث واتساب" />
+              <ResultTile value={phoneUpdateResult.repairedPhoneAlt} label="سيحدث هاتف إضافي" />
+              <ResultTile value={phoneUpdateResult.repairedAddresses} label="سيحدث العنوان" />
+              <ResultTile value={phoneUpdateResult.repairedNames} label="سيحدث الاسم" />
+              <ResultTile value={phoneUpdateResult.repairedBranches} label="سيحدث الفرع" />
+              <ResultTile value={phoneUpdateResult.insertedCustomers} label="عملاء جدد" />
               <ResultTile value={phoneUpdateResult.skippedExistingValid} label="رقم صالح موجود" />
               <ResultTile value={phoneUpdateResult.needsReviewRows} label="تحتاج مراجعة" />
               <ResultTile value={phoneUpdateResult.unmatchedRows} label="غير مطابق" />
@@ -701,7 +731,7 @@ export default function Invoices() {
                     disabled={phoneUpdateBusy || phoneUpdateConfirmText.trim() !== CUSTOMER_PHONE_CONFIRMATION}
                     className="btn-primary disabled:opacity-50"
                   >
-                    تطبيق تحديث أرقام العملاء
+                    تطبيق استيراد العملاء
                   </button>
                 </div>
               </div>
@@ -710,8 +740,20 @@ export default function Invoices() {
             <div className="rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-3 text-sm font-bold text-white">
                 <span>أول 200 صف من نتيجة الفحص</span>
-                <button type="button" onClick={downloadPhoneUpdatePreviewReport} className="btn-secondary px-3 py-1 text-xs">
-                  تنزيل تقرير المعاينة
+                <button type="button" onClick={() => downloadPhoneUpdatePreviewReport("all")} className="btn-secondary px-3 py-1 text-xs">
+                  كل المعاينة
+                </button>
+                <button type="button" onClick={() => downloadPhoneUpdatePreviewReport("repair")} className="btn-secondary px-3 py-1 text-xs">
+                  سيتم إصلاحهم
+                </button>
+                <button type="button" onClick={() => downloadPhoneUpdatePreviewReport("review")} className="btn-secondary px-3 py-1 text-xs">
+                  تحتاج مراجعة
+                </button>
+                <button type="button" onClick={() => downloadPhoneUpdatePreviewReport("invalid")} className="btn-secondary px-3 py-1 text-xs">
+                  أرقام مرفوضة
+                </button>
+                <button type="button" onClick={() => downloadPhoneUpdatePreviewReport("unmatched")} className="btn-secondary px-3 py-1 text-xs">
+                  غير مطابق
                 </button>
               </div>
               <div className="max-h-72 overflow-auto">
@@ -722,8 +764,10 @@ export default function Invoices() {
                       <th>الكود</th>
                       <th>العميل</th>
                       <th>الفرع</th>
+                      <th>العنوان</th>
                       <th>الهاتف الجديد</th>
                       <th>واتساب جديد</th>
+                      <th>هاتف إضافي</th>
                       <th>الحالة</th>
                     </tr>
                   </thead>
@@ -734,8 +778,10 @@ export default function Invoices() {
                         <td className="num">{row.customer_code || "-"}</td>
                         <td className="text-white font-medium">{row.customer_name || "-"}</td>
                         <td>{row.branch || "-"}</td>
+                        <td className="max-w-[220px] truncate">{row.address || "-"}</td>
                         <td className="num text-teal-300">{row.new_phone || "-"}</td>
                         <td className="num text-teal-300">{row.new_whatsapp_phone || "-"}</td>
+                        <td className="num text-teal-300">{row.phone_alt || "-"}</td>
                         <td>
                           <span className={`rounded-full px-2 py-1 text-xs font-bold ${
                             row.status === "ready_to_update"
@@ -746,7 +792,7 @@ export default function Invoices() {
                                   ? "bg-rose-400/15 text-rose-100"
                                   : "bg-slate-400/15 text-slate-100"
                           }`}>
-                            {row.status}
+                            {customerImportStatusLabel(row.status)}
                           </span>
                         </td>
                       </tr>

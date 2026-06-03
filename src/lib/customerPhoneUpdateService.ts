@@ -5,9 +5,10 @@ import { clearCustomerServiceCommandCenterCache } from "@/lib/api/customerServic
 import { clearCustomerProfileCache } from "@/lib/customerProfileService";
 import { clearExecutiveDashboardCache } from "@/lib/executiveDashboardDataService";
 import { clearSalesAnalyticsSummaryCache } from "@/lib/salesAnalyticsSummaryService";
+import { clearCustomerFollowupEnrichmentCache } from "@/lib/customerFollowupEnrichmentService";
 import { logActivity } from "@/lib/activityLog";
 
-export const CUSTOMER_PHONE_CONFIRMATION = "تحديث أرقام العملاء";
+export const CUSTOMER_PHONE_CONFIRMATION = "استيراد العملاء";
 
 export type CustomerPhoneCsvRow = {
   final_customer_key?: string | null;
@@ -15,9 +16,11 @@ export type CustomerPhoneCsvRow = {
   customer_code?: string | null;
   customer_name?: string | null;
   branch?: string | null;
+  address?: string | null;
   current_phone?: string | null;
   new_phone?: string | null;
   new_whatsapp_phone?: string | null;
+  phone_alt?: string | null;
   notes?: string | null;
 };
 
@@ -29,6 +32,8 @@ export type CustomerPhoneColumnMapping = {
   branchColumn?: string | null;
   phoneColumn?: string | null;
   whatsappColumn?: string | null;
+  phoneAltColumn?: string | null;
+  addressColumn?: string | null;
   notesColumn?: string | null;
   ambiguousPhoneColumns: string[];
   ambiguousWhatsappColumns: string[];
@@ -60,10 +65,16 @@ export type CustomerPhoneUpdateResultRow = {
   status: string;
   new_phone: string | null;
   new_whatsapp_phone: string | null;
+  phone_alt?: string | null;
+  address?: string | null;
   existing_phone: string | null;
   existing_whatsapp_phone: string | null;
   would_update_phone: boolean;
   would_update_whatsapp: boolean;
+  would_update_phone_alt?: boolean;
+  would_update_address?: boolean;
+  would_update_name?: boolean;
+  would_update_branch?: boolean;
 };
 
 export type CustomerPhoneUpdateResult = {
@@ -76,6 +87,11 @@ export type CustomerPhoneUpdateResult = {
   wouldUpdatePhone: number;
   wouldUpdateWhatsapp: number;
   customersUpdated: number;
+  insertedCustomers?: number;
+  repairedAddresses?: number;
+  repairedNames?: number;
+  repairedBranches?: number;
+  repairedPhoneAlt?: number;
   skippedExistingValid: number;
   unmatchedRows: number;
   needsReviewRows: number;
@@ -169,6 +185,8 @@ const COLUMN_ALIASES = {
   branch: ["branch", "فرع", "الفرع"],
   phone: ["new_phone", "phone", "mobile", "customer_phone", "tel", "telephone", "تليفون", "التليفون", "رقمالتليفون", "رقمالهاتف", "موبايل", "الموبايل", "هاتف"],
   whatsapp: ["new_whatsapp_phone", "whatsapp_phone", "whatsappphone", "whatsapp", "واتساب", "رقمواتساب", "رقمالواتساب"],
+  phone_alt: ["phone_alt", "alternate_phone", "alt_phone", "هاتفاضافي", "رقماخر", "رقمآخر", "تليفوناخر", "تليفونآخر"],
+  address: ["address", "customer_address", "العنوان", "عنوان", "عنوانالعميل"],
   notes: ["notes", "note", "ملاحظات", "ملاحظة"],
 };
 
@@ -190,6 +208,8 @@ function detectMapping(headers: string[]): CustomerPhoneColumnMapping {
     branchColumn: pick(COLUMN_ALIASES.branch),
     phoneColumn: phoneColumns[0] || null,
     whatsappColumn: whatsappColumns[0] || (phoneColumns.length > 1 ? phoneColumns[1] : null),
+    phoneAltColumn: pick(COLUMN_ALIASES.phone_alt),
+    addressColumn: pick(COLUMN_ALIASES.address),
     notesColumn: pick(COLUMN_ALIASES.notes),
     ambiguousPhoneColumns: phoneColumns,
     ambiguousWhatsappColumns: whatsappColumns,
@@ -205,6 +225,7 @@ function normalizeRow(row: Record<string, unknown>, mapping?: CustomerPhoneColum
     const customerCode = getMappedValue(row, mapping.customerCodeColumn);
     const phoneRaw = getMappedValue(row, mapping.phoneColumn);
     const whatsappRaw = getMappedValue(row, mapping.whatsappColumn);
+    const phoneAltRaw = getMappedValue(row, mapping.phoneAltColumn);
     const phone = normalizeEgyptMobileForCustomerUpdate(phoneRaw, customerCode);
     const whatsapp = normalizeEgyptMobileForCustomerUpdate(whatsappRaw, customerCode) || (options.copyPhoneToWhatsappWhenMissing ? phone : null);
     return {
@@ -213,9 +234,11 @@ function normalizeRow(row: Record<string, unknown>, mapping?: CustomerPhoneColum
       customer_code: customerCode,
       customer_name: getMappedValue(row, mapping.customerNameColumn),
       branch: getMappedValue(row, mapping.branchColumn),
+      address: getMappedValue(row, mapping.addressColumn),
       current_phone: clean((row as any).current_phone),
       new_phone: phone,
       new_whatsapp_phone: whatsapp,
+      phone_alt: normalizeEgyptMobileForCustomerUpdate(phoneAltRaw, customerCode),
       notes: getMappedValue(row, mapping.notesColumn),
     };
   }
@@ -226,9 +249,11 @@ function normalizeRow(row: Record<string, unknown>, mapping?: CustomerPhoneColum
     customer_code: clean(row.customer_code),
     customer_name: clean(row.customer_name),
     branch: clean(row.branch),
+    address: clean((row as any).address),
     current_phone: clean(row.current_phone),
     new_phone: normalizeEgyptMobileForCustomerUpdate(row.new_phone, clean(row.customer_code)),
     new_whatsapp_phone: normalizeEgyptMobileForCustomerUpdate(row.new_whatsapp_phone, clean(row.customer_code)),
+    phone_alt: normalizeEgyptMobileForCustomerUpdate((row as any).phone_alt, clean(row.customer_code)),
     notes: clean(row.notes),
   };
 }
@@ -307,7 +332,7 @@ export async function parseCustomerPhoneFile(file: File, options: CustomerPhoneP
   const mapping = detectMapping(headers);
   const rows = rawRows
     .map((row) => normalizeRow(row, mapping, options))
-    .filter((row) => row.customer_id || row.customer_code || row.final_customer_key || row.customer_name || row.new_phone || row.new_whatsapp_phone);
+    .filter((row) => row.customer_id || row.customer_code || row.final_customer_key || row.customer_name || row.new_phone || row.new_whatsapp_phone || row.phone_alt || row.address);
 
   const stats = rawRows.reduce<CustomerPhoneParseStats>((acc, rawRow) => {
     const customerCode = getMappedValue(rawRow, mapping.customerCodeColumn);
@@ -372,11 +397,18 @@ function emptyParseResult(): CustomerPhoneParseResult {
 
 export async function previewCustomerPhoneUpdate(rows: CustomerPhoneCsvRow[]): Promise<CustomerPhoneUpdateResult> {
   const invalidBefore = await countInvalidCustomerSummaryPhones();
-  const { data, error } = await supabase.rpc("safe_customer_phone_update_from_json", {
+  const { data, error } = await supabase.rpc("safe_daily_customer_import_from_json", {
     p_rows: rows,
     p_apply: false,
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    const fallback = await supabase.rpc("safe_customer_phone_update_from_json", {
+      p_rows: rows,
+      p_apply: false,
+    });
+    if (fallback.error) throw new Error(error.message);
+    return { ...(fallback.data as CustomerPhoneUpdateResult), invalidSummaryPhoneCountBefore: invalidBefore };
+  }
   return { ...(data as CustomerPhoneUpdateResult), invalidSummaryPhoneCountBefore: invalidBefore };
 }
 
@@ -384,7 +416,7 @@ export async function applyCustomerPhoneUpdate(
   rows: CustomerPhoneCsvRow[],
   actor: { id?: string | null; name?: string | null; role?: string | null } = {},
 ): Promise<CustomerPhoneUpdateResult> {
-  const { data, error } = await supabase.rpc("safe_customer_phone_update_from_json", {
+  const { data, error } = await supabase.rpc("safe_daily_customer_import_from_json", {
     p_rows: rows,
     p_apply: true,
   });
@@ -394,6 +426,7 @@ export async function applyCustomerPhoneUpdate(
 
   clearCustomersCache();
   clearCustomerServiceCommandCenterCache();
+  clearCustomerFollowupEnrichmentCache();
   clearCustomerProfileCache();
   clearExecutiveDashboardCache();
   clearSalesAnalyticsSummaryCache();
@@ -402,7 +435,7 @@ export async function applyCustomerPhoneUpdate(
   result.invalidSummaryPhoneCountAfter = await countInvalidCustomerSummaryPhones();
 
   await logActivity({
-    action: "تحديث أرقام العملاء",
+    action: "تم تصحيح بيانات العملاء",
     module: "استيراد العملاء",
     target_type: "customers",
     target_id: "customer_phone_update_csv",
@@ -413,6 +446,11 @@ export async function applyCustomerPhoneUpdate(
     details: {
       updated_phone_count: result.wouldUpdatePhone,
       updated_whatsapp_count: result.wouldUpdateWhatsapp,
+      inserted_customers: result.insertedCustomers || 0,
+      repaired_addresses: result.repairedAddresses || 0,
+      repaired_names: result.repairedNames || 0,
+      repaired_branches: result.repairedBranches || 0,
+      repaired_phone_alt: result.repairedPhoneAlt || 0,
       skipped_count: result.skippedExistingValid + result.invalidPhones,
       unmatched_count: result.unmatchedRows,
       needs_review_count: result.needsReviewRows,
@@ -425,6 +463,9 @@ export async function applyCustomerPhoneUpdate(
 }
 
 async function countInvalidCustomerSummaryPhones() {
+  const rpc = await supabase.rpc("count_invalid_customer_summary_phones");
+  if (!rpc.error && typeof rpc.data === "number") return rpc.data;
+
   const { count, error } = await supabase
     .from("customer_metrics_summary")
     .select("final_customer_key", { count: "exact", head: true })
