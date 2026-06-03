@@ -1,7 +1,7 @@
-import { Bell, Menu, Sun, Moon, Waves, Crown, Leaf, Droplets, Volume2, VolumeX, CheckCheck, ExternalLink } from "lucide-react";
+import { Bell, Menu, Sun, Moon, Volume2, VolumeX, CheckCheck, ExternalLink } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth, getSafeCurrentUserId } from "@/hooks/useAuth";
-import { useTheme, type PaletteId } from "@/hooks/useTheme";
+import { useTheme } from "@/hooks/useTheme";
 import { getCurrentCycle, getRemainingDays } from "@/lib/pharmacy-cycle";
 import { useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -45,12 +45,6 @@ interface HeaderProps {
 }
 
 const SOUND_KEY = "dawaa_notif_sound";
-
-const PALETTES: { id: PaletteId; label: string; icon: typeof Waves }[] = [
-  { id: "aqua", label: "فيروزي", icon: Droplets },
-  { id: "royal", label: "ملكي", icon: Crown },
-  { id: "forest", label: "غابة", icon: Leaf },
-];
 
 const notifColors: Record<string, string> = {
   reward: "bg-emerald-50 border-emerald-200 text-emerald-700",
@@ -137,7 +131,7 @@ function isUrgent(item: AppNotification) {
 export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { theme, setTheme, palette, setPalette } = useTheme();
+  const { theme, setTheme } = useTheme();
   const [showNotifs, setShowNotifs] = useState(false);
   const [soundMode, setSoundMode] = useState<"off" | "soft" | "distinct">(() => (localStorage.getItem(SOUND_KEY) as "off" | "soft" | "distinct") || "soft");
   const cycle = getCurrentCycle();
@@ -215,25 +209,6 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
         <span className="text-xs font-black text-teal-700">{cycle.shortLabel}</span>
         <span className="text-xs text-slate-500">({remaining} يوم)</span>
       </div>
-
-      <div className="hidden items-center gap-0.5 rounded-xl border border-slate-200 bg-slate-50 p-1 sm:flex" title="لوحة الألوان">
-        {PALETTES.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setPalette(id)}
-            className={cn(
-              "flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-bold transition-all",
-              palette === id ? "border border-teal-100 bg-white text-teal-700 shadow-sm" : "text-slate-500 hover:bg-white hover:text-slate-800",
-            )}
-            aria-pressed={palette === id}
-          >
-            <Icon size={12} />
-            <span className="hidden lg:inline">{label}</span>
-          </button>
-        ))}
-      </div>
-
       <div className="theme-switcher flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1">
         <button type="button" onClick={() => setTheme("light")} className={cn("theme-option", theme === "light" && "theme-option-active")} title="الوضع الفاتح" aria-pressed={theme === "light"}>
           <Sun size={15} />

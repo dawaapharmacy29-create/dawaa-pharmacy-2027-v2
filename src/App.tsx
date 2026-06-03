@@ -4,12 +4,12 @@ import { Toaster } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import Layout from "@/components/layout/Layout";
 import Login from "@/pages/Login";
-import Dashboard from "@/pages/Dashboard";
 import ExecutiveDashboard2027 from "@/pages/ExecutiveDashboard2027";
 import EvaluationRules2027 from "@/pages/EvaluationRules2027";
 import QuarterlyIncentives2027 from "@/pages/QuarterlyIncentives2027";
 import OperationsCenter2027 from "@/pages/OperationsCenter2027";
 import Customers from "@/pages/Customers";
+import CustomerImport from "@/pages/CustomerImport";
 import CustomerService from "@/pages/CustomerService";
 import CustomerRequests from "@/pages/CustomerRequests";
 import Team from "@/pages/Team";
@@ -151,7 +151,7 @@ export default function App() {
           path="/dashboard-classic"
           element={
             <ProtectedRoute>
-              <Dashboard />
+              <Navigate to="/executive-2027" replace />
             </ProtectedRoute>
           }
         />
@@ -195,6 +195,16 @@ export default function App() {
           element={
             <ProtectedRoute>
               <Customers />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/customers/import"
+          element={
+            <ProtectedRoute>
+              <AdminRoute>
+                <CustomerImport />
+              </AdminRoute>
             </ProtectedRoute>
           }
         />

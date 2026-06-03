@@ -11,6 +11,11 @@ import { getCycleForDate } from "@/lib/pharmacy-cycle";
 import { getShiftFromDateTime } from "@/lib/analyticsFromInvoices";
 import { invalidateInvoiceCache } from "@/lib/salesInvoiceSource";
 import { normalizeName } from "@/lib/utils";
+import { clearExecutiveDashboardCache } from "@/lib/executiveDashboardDataService";
+import { clearSalesAnalyticsSummaryCache } from "@/lib/salesAnalyticsSummaryService";
+import { clearCustomerProfileCache } from "@/lib/customerProfileService";
+import { clearCustomersCache } from "@/lib/api/customers";
+import { clearCustomerServiceCommandCenterCache } from "@/lib/api/customerServiceCommandCenter";
 
 export interface RawInvoiceRow {
   rowIndex: number;
@@ -95,6 +100,14 @@ export interface ImportSummary {
   staffLinkingMode?: "staff_id" | "name_fallback";
   summaryRefreshStatus?: "refreshed" | "unavailable";
   summaryRefreshMessage?: string;
+  postImportRefreshSteps?: PostImportRefreshStep[];
+}
+
+export interface PostImportRefreshStep {
+  key: string;
+  label: string;
+  status: "success" | "failed" | "skipped";
+  message: string;
 }
 
 export interface ParseResult {
@@ -1246,35 +1259,130 @@ async function linkSellerToStaffId(sellerName: string, branch: string): Promise<
 }
 
 async function refreshImportSummaries(summary: ImportSummary) {
-  if (summary.firstInvoiceDate && summary.lastInvoiceDate) {
+  const steps: PostImportRefreshStep[] = [];
+  const addStep = (step: PostImportRefreshStep) => steps.push(step);
+  const dateRangeReady = Boolean(summary.firstInvoiceDate && summary.lastInvoiceDate);
+
+  if (dateRangeReady) {
     const { error } = await supabase.rpc("rebuild_sales_daily_summary", {
       p_start_date: summary.firstInvoiceDate,
       p_end_date: summary.lastInvoiceDate,
     });
     if (!error) {
-      summary.summaryRefreshStatus = "refreshed";
-      summary.summaryRefreshMessage = "تم تحديث ملخصات المبيعات اليومية بعد الاستيراد.";
-      return;
+      addStep({
+        key: "sales_daily_summary",
+        label: "تحديث ملخص المبيعات اليومية",
+        status: "success",
+        message: `تم تحديث sales_daily_summary للفترة ${summary.firstInvoiceDate} إلى ${summary.lastInvoiceDate}.`,
+      });
+    } else if (import.meta.env.DEV) {
+      console.warn("[invoiceImporter] rebuild_sales_daily_summary failed", error);
+      addStep({
+        key: "sales_daily_summary",
+        label: "تحديث ملخص المبيعات اليومية",
+        status: "failed",
+        message: friendlyError(error.message),
+      });
+    } else {
+      addStep({
+        key: "sales_daily_summary",
+        label: "تحديث ملخص المبيعات اليومية",
+        status: "failed",
+        message: "تعذر تحديث ملخص المبيعات اليومية.",
+      });
     }
+  } else {
+    addStep({
+      key: "sales_daily_summary",
+      label: "تحديث ملخص المبيعات اليومية",
+      status: "skipped",
+      message: "لم يتم العثور على مدى تاريخ واضح داخل ملف الاستيراد.",
+    });
   }
 
-  const rpcCandidates = [
-    "refresh_dashboard_summaries",
-    "refresh_sales_daily_summary",
-    "refresh_customer_metrics_summary",
-  ];
-
-  for (const rpcName of rpcCandidates) {
-    const { error } = await supabase.rpc(rpcName);
+  if (dateRangeReady) {
+    const { error } = await supabase.rpc("rebuild_staff_sales_summary", {
+      p_start_date: summary.firstInvoiceDate,
+      p_end_date: summary.lastInvoiceDate,
+    });
     if (!error) {
-      summary.summaryRefreshStatus = "refreshed";
-      summary.summaryRefreshMessage = "تم تحديث ملخصات التحليلات بعد الاستيراد.";
-      return;
+      addStep({
+        key: "staff_sales_summary",
+        label: "تحديث ملخص أداء الدكاترة",
+        status: "success",
+        message: `تم تحديث staff_sales_summary للفترة ${summary.firstInvoiceDate} إلى ${summary.lastInvoiceDate}.`,
+      });
+    } else {
+      if (import.meta.env.DEV) console.warn("[invoiceImporter] rebuild_staff_sales_summary failed", error);
+      addStep({
+        key: "staff_sales_summary",
+        label: "تحديث ملخص أداء الدكاترة",
+        status: "failed",
+        message: friendlyError(error.message),
+      });
     }
+  } else {
+    addStep({
+      key: "staff_sales_summary",
+      label: "تحديث ملخص أداء الدكاترة",
+      status: "skipped",
+      message: "لم يتم العثور على مدى تاريخ واضح داخل ملف الاستيراد.",
+    });
   }
 
-  summary.summaryRefreshStatus = "unavailable";
-  summary.summaryRefreshMessage = "تم الاستيراد، ويلزم تحديث الملخصات قبل الاعتماد على الداشبورد";
+  const { error: customerMetricsError } = await supabase.rpc("rebuild_customer_metrics_summary");
+  if (!customerMetricsError) {
+    addStep({
+      key: "customer_metrics_summary",
+      label: "تحديث ملخص العملاء",
+      status: "success",
+      message: "تم تحديث customer_metrics_summary بعد الاستيراد.",
+    });
+  } else if (import.meta.env.DEV) {
+    console.warn("[invoiceImporter] rebuild_customer_metrics_summary failed", customerMetricsError);
+    addStep({
+      key: "customer_metrics_summary",
+      label: "تحديث ملخص العملاء",
+      status: "failed",
+      message: friendlyError(customerMetricsError.message),
+    });
+  } else {
+    addStep({
+      key: "customer_metrics_summary",
+      label: "تحديث ملخص العملاء",
+      status: "failed",
+      message: "تعذر تحديث ملخص العملاء.",
+    });
+  }
+
+  try {
+    invalidateInvoiceCache();
+    clearExecutiveDashboardCache();
+    clearSalesAnalyticsSummaryCache();
+    clearCustomersCache();
+    clearCustomerServiceCommandCenterCache();
+    clearCustomerProfileCache();
+    addStep({
+      key: "frontend_caches",
+      label: "تفريغ كاش الشاشات",
+      status: "success",
+      message: "تم تفريغ كاش الداشبورد والتحليلات والعملاء وخدمة العملاء وملفات العملاء.",
+    });
+  } catch (error) {
+    addStep({
+      key: "frontend_caches",
+      label: "تفريغ كاش الشاشات",
+      status: "failed",
+      message: friendlyError(error instanceof Error ? error.message : String(error)),
+    });
+  }
+
+  summary.postImportRefreshSteps = steps;
+  const failedSteps = steps.filter((step) => step.status === "failed");
+  summary.summaryRefreshStatus = failedSteps.length ? "unavailable" : "refreshed";
+  summary.summaryRefreshMessage = failedSteps.length
+    ? `تم الاستيراد، لكن ${failedSteps.length.toLocaleString("ar-EG")} خطوة تحديث تحتاج مراجعة.`
+    : "تم تحديث ملخصات المبيعات والدكاترة والعملاء وتفريغ كاش الشاشات بعد الاستيراد.";
 }
 
 export async function importInvoicesToDB(
@@ -1424,7 +1532,7 @@ export async function importInvoicesToDB(
     invoice_type: row.invoiceType,
     customer_code: row.customerLinkStatus === "unmatched_customer" ? null : row.customerCode || null,
     customer_name: row.name,
-    customer_phone: row.customerLinkStatus === "unmatched_customer" ? null : (row.phone || (row.customerCode ? `code:${row.customerCode}` : null)),
+    customer_phone: row.customerLinkStatus === "unmatched_customer" ? null : row.phone || null,
     invoice_date: row.date,
     invoice_datetime: row.invoiceDateTime,
     close_datetime: row.closeDateTime,

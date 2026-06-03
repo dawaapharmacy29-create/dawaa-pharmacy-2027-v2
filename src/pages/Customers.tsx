@@ -11,15 +11,29 @@ import {
   Search,
   Users,
 } from "lucide-react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { toast } from "sonner";
 import {
   ALL_FILTER,
   getCustomerDetails,
+  getCustomerMonthlyAnalytics,
   getCustomers,
   getCustomerStats,
   saveCustomerProfileNotes,
   type CustomerDetails,
   type CustomerMetric,
+  type CustomerMonthlyAnalytics,
   type CustomerStats,
 } from "@/lib/api/customers";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -45,6 +59,7 @@ const PAGE_SIZE = 30;
 
 const EMPTY_STATS: CustomerStats = {
   total: 0,
+  summaryTotal: 0,
   veryImportant: 0,
   important: 0,
   medium: 0,
@@ -102,6 +117,8 @@ export default function Customers() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [statsLoading, setStatsLoading] = useState(true);
+  const [monthlyAnalytics, setMonthlyAnalytics] = useState<CustomerMonthlyAnalytics | null>(null);
+  const [monthlyLoading, setMonthlyLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<CustomerMetric | null>(null);
   const requestIdRef = useRef(0);
@@ -131,6 +148,23 @@ export default function Customers() {
       setError(errorMsg);
     } finally {
       setStatsLoading(false);
+    }
+  }, []);
+
+  const loadMonthlyAnalytics = useCallback(async () => {
+    setMonthlyLoading(true);
+    try {
+      const result = await getCustomerMonthlyAnalytics(6);
+      setMonthlyAnalytics(result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "تعذر تحميل تطور العملاء الشهري";
+      setMonthlyAnalytics({
+        rows: [],
+        source: "customers + customer_metrics_summary",
+        warnings: [message],
+      });
+    } finally {
+      setMonthlyLoading(false);
     }
   }, []);
 
@@ -186,6 +220,10 @@ export default function Customers() {
   }, [loadStats]);
 
   useEffect(() => {
+    loadMonthlyAnalytics();
+  }, [loadMonthlyAnalytics]);
+
+  useEffect(() => {
     loadCustomers();
   }, [loadCustomers]);
 
@@ -194,7 +232,8 @@ export default function Customers() {
   const showingTo = Math.min(page * PAGE_SIZE, totalCount);
 
   const cards = useMemo(() => [
-    { label: "إجمالي العملاء", value: stats.total, type: ALL_FILTER, status: ALL_FILTER, tone: "slate" as const },
+    { label: "إجمالي العملاء المسجلين", value: stats.total, type: ALL_FILTER, status: ALL_FILTER, tone: "slate" as const },
+    { label: "عملاء لهم مشتريات", value: stats.summaryTotal, type: ALL_FILTER, status: ALL_FILTER, tone: "teal" as const },
     { label: "مهم جدًا", value: stats.veryImportant, type: "مهم جدًا", status: ALL_FILTER, tone: "violet" as const },
     { label: "مهم", value: stats.important, type: "مهم", status: ALL_FILTER, tone: "amber" as const },
     { label: "متوسط", value: stats.medium, type: "متوسط", status: ALL_FILTER, tone: "blue" as const },
@@ -220,7 +259,20 @@ export default function Customers() {
           <p className="mt-1 text-sm font-semibold text-slate-600">تصنيف سريع ودقيق من ملخصات العملاء بدون تحميل كل الفواتير</p>
         </div>
         <div className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm font-black text-teal-800">
-          {refreshing ? "جاري تحديث النتائج..." : `${showingFrom}-${showingTo} من ${totalCount}`}
+          {refreshing ? "جاري تحديث النتائج..." : `${showingFrom}-${showingTo} من ${totalCount} في ملخص المشترين`}
+        </div>
+      </section>
+
+      <section className="grid gap-3 md:grid-cols-2">
+        <div className="rounded-2xl border border-teal-200 bg-white p-4 shadow-sm">
+          <div className="text-sm font-black text-slate-600">إجمالي العملاء المسجلين</div>
+          <div className="num mt-2 text-3xl font-black text-slate-950">{statsLoading ? "..." : stats.total.toLocaleString("ar-EG")}</div>
+          <div className="mt-1 text-xs font-semibold text-slate-500">كل العملاء الموجودين في جدول العملاء.</div>
+        </div>
+        <div className="rounded-2xl border border-teal-200 bg-teal-50 p-4 shadow-sm">
+          <div className="text-sm font-black text-teal-700">عملاء لهم مشتريات في الملخص</div>
+          <div className="num mt-2 text-3xl font-black text-teal-900">{statsLoading ? "..." : stats.summaryTotal.toLocaleString("ar-EG")}</div>
+          <div className="mt-1 text-xs font-semibold text-teal-700/80">هذا الرقم مصدره customer_metrics_summary، لذلك قد يكون أقل من إجمالي المسجلين.</div>
         </div>
       </section>
 
@@ -240,13 +292,14 @@ export default function Customers() {
       <section className="dawaa-panel">
         <div className="grid gap-3 lg:grid-cols-[1fr_180px_180px_190px]">
           <div className="relative">
-            <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="بحث بالكود، الاسم، الهاتف... مثال: احمد* أو *احمد* أو 010*"
-              className="dawaa-input w-full pr-10"
+              placeholder="بحث بالكود، الاسم، الهاتف... مثال: احمد* أو *ا*س*لا*م أو 010*"
+              dir="rtl"
+              className="dawaa-input w-full pl-12 pr-4"
             />
             {refreshing && <Loader2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-teal-600" />}
           </div>
@@ -264,6 +317,8 @@ export default function Customers() {
           </select>
         </div>
       </section>
+
+      <CustomerMonthlyAnalyticsPanel data={monthlyAnalytics} loading={monthlyLoading} />
 
       {error && (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
@@ -382,11 +437,107 @@ function CustomerStatCard({
     <button
       type="button"
       onClick={onClick}
-      className={`min-h-[104px] rounded-2xl border p-3 text-center shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${tones[tone]} ${active ? "ring-2 ring-teal-300" : ""}`}
+      className={`min-h-[122px] rounded-2xl border p-3 text-center shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${tones[tone]} ${active ? "ring-2 ring-teal-300" : ""}`}
     >
-      <div className="num text-2xl font-black">{value}</div>
-      <div className="mt-1 text-xs font-black leading-5">{label}</div>
+      <div className="num text-2xl font-black leading-none">{value}</div>
+      <div className="mt-2 min-h-[42px] break-words text-xs font-black leading-5 text-current">{label}</div>
     </button>
+  );
+}
+
+function numberOrZero(value: number | null | undefined) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function CustomerMonthlyAnalyticsPanel({ data, loading }: { data: CustomerMonthlyAnalytics | null; loading: boolean }) {
+  const rows = data?.rows || [];
+  const latest = rows[rows.length - 1];
+  const previous = rows[rows.length - 2];
+  const latestRegistered = numberOrZero(latest?.registeredCustomers);
+  const previousRegistered = numberOrZero(previous?.registeredCustomers);
+  const growth = previousRegistered > 0 ? Math.round(((latestRegistered - previousRegistered) / previousRegistered) * 100) : null;
+
+  return (
+    <section className="dawaa-panel space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-black text-slate-950">تطور العملاء شهريًا</h2>
+          <p className="mt-1 text-sm font-semibold text-slate-600">
+            العملاء المتسجلين كل شهر وتطور التصنيفات، باستعلامات عد فقط بدون تحميل كل العملاء أو الفواتير.
+          </p>
+        </div>
+        <div className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-2 text-sm font-black text-teal-800">
+          {loading ? "جاري التحليل..." : `آخر شهر: ${latestRegistered.toLocaleString("ar-EG")} عميل`}
+          {growth !== null && !loading ? <span className="ms-2 text-xs">({growth >= 0 ? "+" : ""}{growth}%)</span> : null}
+        </div>
+      </div>
+
+      {data?.warnings?.length ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800">
+          {data.warnings[0]}
+        </div>
+      ) : null}
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="mb-3 font-black text-slate-900">العملاء المتسجلين كل شهر</div>
+          <div className="h-[260px]">
+            {loading ? <div className="h-full animate-pulse rounded-2xl bg-slate-100" /> : (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={rows}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                  <Tooltip formatter={(value) => [Number(value).toLocaleString("ar-EG"), "عملاء مسجلين"]} />
+                  <Line type="monotone" dataKey="registeredCustomers" name="عملاء مسجلين" stroke="#0f766e" strokeWidth={3} dot={{ r: 4 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="mb-3 font-black text-slate-900">تطور تصنيفات العملاء</div>
+          <div className="h-[260px]">
+            {loading ? <div className="h-full animate-pulse rounded-2xl bg-slate-100" /> : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={rows}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                  <Tooltip formatter={(value, name) => [Number(value).toLocaleString("ar-EG"), name]} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="veryImportant" name="مهم جدًا" stackId="segments" fill="#8b5cf6" />
+                  <Bar dataKey="important" name="مهم" stackId="segments" fill="#f59e0b" />
+                  <Bar dataKey="medium" name="متوسط" stackId="segments" fill="#3b82f6" />
+                  <Bar dataKey="normal" name="عادي" stackId="segments" fill="#64748b" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <MiniCustomerTrendCard label="إجمالي المسجلين في آخر شهر" value={latestRegistered} />
+        <MiniCustomerTrendCard label="عملاء لهم أول شراء في آخر شهر" value={numberOrZero(latest?.purchasedCustomers)} />
+        <MiniCustomerTrendCard label="مهم ومهم جدًا في آخر شهر" value={numberOrZero(latest?.veryImportant) + numberOrZero(latest?.important)} />
+      </div>
+
+      <div className="text-xs font-semibold text-slate-500">
+        المصدر: {data?.source || "customers + customer_metrics_summary"}
+      </div>
+    </section>
+  );
+}
+
+function MiniCustomerTrendCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-2xl border border-teal-100 bg-teal-50/70 p-4">
+      <div className="num text-2xl font-black text-teal-800">{value.toLocaleString("ar-EG")}</div>
+      <div className="mt-1 text-sm font-black text-slate-700">{label}</div>
+    </div>
   );
 }
 

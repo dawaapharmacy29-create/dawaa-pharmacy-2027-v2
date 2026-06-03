@@ -18,6 +18,15 @@ import {
   type ImportSummary,
   type ParseResult,
 } from "@/lib/invoiceImporter";
+import {
+  applyCustomerPhoneUpdate,
+  CUSTOMER_PHONE_CONFIRMATION,
+  parseCustomerPhoneFile,
+  previewCustomerPhoneUpdate,
+  type CustomerPhoneParseResult,
+  type CustomerPhoneCsvRow,
+  type CustomerPhoneUpdateResult,
+} from "@/lib/customerPhoneUpdateService";
 
 type Step = "idle" | "parsing" | "preview" | "importing" | "done";
 type ImportKind = "sales" | "customers";
@@ -58,6 +67,25 @@ function invoiceSalesValue(invoice: Pick<ManagedInvoiceRow, "net_amount" | "disc
   return 0;
 }
 
+function customerImportStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    existing_customer: "عميل موجود",
+    new_customer: "عميل جديد",
+    already_valid: "بيانات صالحة",
+    ready_to_update: "جاهز للتحديث",
+    unmatched: "غير مطابق",
+    invalid_phone: "رقم غير صالح",
+    invalid_row: "صف غير صالح",
+    duplicate_in_file: "مكرر في الملف",
+    needs_review_existing_phone: "مراجعة: هاتف مختلف",
+    needs_review_phone_used_by_other: "مراجعة: الرقم مستخدم لعميل آخر",
+    needs_review_existing_whatsapp: "مراجعة: واتساب مختلف",
+    needs_review_existing_address: "مراجعة: عنوان مختلف",
+    needs_review_multiple_matches: "مراجعة: أكثر من تطابق",
+  };
+  return labels[status] || status;
+}
+
 interface InvoiceEditForm {
   branch: string;
   invoice_number: string;
@@ -92,6 +120,13 @@ export default function Invoices() {
   const [duplicateAudit, setDuplicateAudit] = useState<DuplicateInvoiceGroup[]>([]);
   const [duplicateAuditLoading, setDuplicateAuditLoading] = useState(false);
   const [summaryRefreshBusy, setSummaryRefreshBusy] = useState(false);
+  const [phoneUpdateRows, setPhoneUpdateRows] = useState<CustomerPhoneCsvRow[]>([]);
+  const [phoneUpdateResult, setPhoneUpdateResult] = useState<CustomerPhoneUpdateResult | null>(null);
+  const [phoneUpdateParseResult, setPhoneUpdateParseResult] = useState<CustomerPhoneParseResult | null>(null);
+  const [phoneUpdateBusy, setPhoneUpdateBusy] = useState(false);
+  const [phoneUpdateFileName, setPhoneUpdateFileName] = useState("");
+  const [phoneUpdateConfirmText, setPhoneUpdateConfirmText] = useState("");
+  const [copyPhoneToWhatsapp, setCopyPhoneToWhatsapp] = useState(false);
   useEscapeKey(() => {
     setEditInvoice(null);
     setEditForm(null);
@@ -261,6 +296,7 @@ export default function Invoices() {
     setParseResult(null);
     setImportSummary(null);
     setProgress(0);
+    setPhoneUpdateParseResult(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -284,6 +320,91 @@ export default function Invoices() {
       return;
     }
     toast.success(`تم تحديث ملخصات المبيعات من ${startDate} إلى ${endDate}`);
+  };
+
+  const handlePhoneUpdateFile = async (file: File) => {
+    if (!/\.(csv|xlsx|xls)$/i.test(file.name)) {
+      toast.error("ملف تحديث أرقام العملاء يجب أن يكون CSV أو Excel");
+      return;
+    }
+
+    setPhoneUpdateBusy(true);
+    setPhoneUpdateFileName(file.name);
+    setPhoneUpdateResult(null);
+    setPhoneUpdateParseResult(null);
+    setPhoneUpdateConfirmText("");
+    try {
+      const parsed = await parseCustomerPhoneFile(file, {
+        copyPhoneToWhatsappWhenMissing: copyPhoneToWhatsapp,
+      });
+      const rows = parsed.rows;
+      setPhoneUpdateParseResult(parsed);
+      setPhoneUpdateRows(rows);
+      if (rows.length === 0) {
+        toast.error("لم يتم العثور على صفوف صالحة في ملف تحديث الأرقام");
+        return;
+      }
+      const preview = await previewCustomerPhoneUpdate(rows);
+      setPhoneUpdateResult(preview);
+      toast.success(`تمت معاينة ${preview.rowsInFile.toLocaleString("ar-EG")} صف بدون كتابة`);
+    } catch (error) {
+      toast.error(`تعذر معاينة ملف الأرقام: ${(error as Error).message}`);
+    } finally {
+      setPhoneUpdateBusy(false);
+    }
+  };
+
+  const handleApplyPhoneUpdate = async () => {
+    if (phoneUpdateConfirmText.trim() !== CUSTOMER_PHONE_CONFIRMATION) {
+      toast.error(`اكتب عبارة التأكيد: ${CUSTOMER_PHONE_CONFIRMATION}`);
+      return;
+    }
+    if (phoneUpdateRows.length === 0) {
+      toast.error("لا توجد صفوف جاهزة للتطبيق");
+      return;
+    }
+
+    setPhoneUpdateBusy(true);
+    try {
+      const result = await applyCustomerPhoneUpdate(phoneUpdateRows, {
+        id: user?.id,
+        name: user?.name,
+        role: user?.role,
+      });
+      setPhoneUpdateResult(result);
+      setPhoneUpdateConfirmText("");
+      toast.success("تم تحديث أرقام العملاء وإعادة بناء ملخص العملاء");
+    } catch (error) {
+      toast.error(`تعذر تحديث أرقام العملاء: ${(error as Error).message}`);
+    } finally {
+      setPhoneUpdateBusy(false);
+    }
+  };
+
+  const downloadPhoneUpdatePreviewReport = (kind: "all" | "repair" | "review" | "invalid" | "unmatched" = "all") => {
+    if (!phoneUpdateResult) return;
+    const headers = ["row_no", "customer_code", "customer_name", "branch", "address", "new_phone", "new_whatsapp_phone", "phone_alt", "status", "match_method", "would_update_phone", "would_update_whatsapp", "would_update_phone_alt", "would_update_address", "would_update_name", "would_update_branch"];
+    const filteredRows = phoneUpdateResult.rows.filter((row) => {
+      if (kind === "repair") return row.status === "new_customer" || row.would_update_phone || row.would_update_whatsapp || row.would_update_phone_alt || row.would_update_address || row.would_update_name || row.would_update_branch;
+      if (kind === "review") return row.status.includes("review") || row.status === "duplicate_in_file";
+      if (kind === "invalid") return row.status === "invalid_phone" || row.status === "invalid_row";
+      if (kind === "unmatched") return row.status === "unmatched";
+      return true;
+    });
+    const escapeCsv = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const lines = [
+      headers.join(","),
+      ...filteredRows.map((row) => headers.map((key) => escapeCsv((row as any)[key])).join(",")),
+    ];
+    const blob = new Blob([`\uFEFF${lines.join("\n")}`], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `daily-customer-import-${kind}-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   };
 
   const invoiceBatches = useMemo(() => {
@@ -501,6 +622,188 @@ export default function Invoices() {
         <button onClick={generateTemplateFile} className="btn-secondary mt-4 flex items-center gap-2">
           <Download size={15} /> تحميل نموذج مبيعات
         </button>
+      </div>
+
+      <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5 space-y-4">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="section-title">استيراد وتحديث العملاء من CSV / Excel</div>
+            <div className="text-sm text-slate-400">
+              يضيف العملاء الجدد ويصلح بيانات العملاء الموجودين في public.customers فقط، ولا يلمس sales_invoices أو customer_metrics_summary مباشرة.
+            </div>
+          </div>
+          <div className="flex flex-col items-start gap-2">
+            <label className="flex items-center gap-2 text-xs font-bold text-slate-200">
+              <input
+                type="checkbox"
+                checked={copyPhoneToWhatsapp}
+                onChange={(event) => setCopyPhoneToWhatsapp(event.target.checked)}
+                disabled={phoneUpdateBusy}
+              />
+              استخدم نفس الرقم للواتساب إذا كان واتساب فارغًا
+            </label>
+            <label className="btn-secondary flex w-fit cursor-pointer items-center gap-2">
+              <Upload size={15} /> اختيار ملف العملاء
+              <input
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                className="hidden"
+                disabled={phoneUpdateBusy}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void handlePhoneUpdateFile(file);
+                  event.currentTarget.value = "";
+                }}
+              />
+            </label>
+          </div>
+        </div>
+
+        {phoneUpdateBusy && (
+          <div className="flex items-center gap-2 rounded-xl border border-teal-300/25 bg-teal-400/10 px-4 py-3 text-sm text-teal-50">
+            <Loader2 size={16} className="animate-spin" /> جاري فحص ملف العملاء وإنشاء معاينة آمنة...
+          </div>
+        )}
+
+        {phoneUpdateResult && (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+              الملف: <span className="font-bold text-white">{phoneUpdateFileName || "ملف العملاء"}</span>
+              <span className="mx-2 text-slate-500">|</span>
+              الحالة: <span className="font-bold text-teal-300">{phoneUpdateResult.apply ? "تم التطبيق" : "معاينة فقط بدون كتابة"}</span>
+            </div>
+            {phoneUpdateParseResult && (
+              <div className="rounded-xl border border-teal-300/20 bg-teal-400/10 px-4 py-3 text-sm text-teal-50">
+                <div className="font-black">خريطة الأعمدة المكتشفة</div>
+                <div className="mt-2 grid gap-2 md:grid-cols-3">
+                  <span>كود العميل: {phoneUpdateParseResult.mapping.customerCodeColumn || "غير موجود"}</span>
+                  <span>اسم العميل: {phoneUpdateParseResult.mapping.customerNameColumn || "غير موجود"}</span>
+                  <span>الفرع/العنوان: {phoneUpdateParseResult.mapping.branchColumn || "غير موجود"}</span>
+                  <span>الهاتف الأساسي: {phoneUpdateParseResult.mapping.phoneColumn || "غير موجود"}</span>
+                  <span>واتساب: {phoneUpdateParseResult.mapping.whatsappColumn || "غير موجود"}</span>
+                  <span>إصلاح صفر البداية: {phoneUpdateParseResult.stats.normalizedLeadingZero.toLocaleString("ar-EG")}</span>
+                  <span>تحويل من +20/0020: {phoneUpdateParseResult.stats.normalizedInternational.toLocaleString("ar-EG")}</span>
+                  <span>أرقام غير صالحة في الملف: {phoneUpdateParseResult.stats.invalidPhones.toLocaleString("ar-EG")}</span>
+                </div>
+                {(phoneUpdateParseResult.mapping.ambiguousPhoneColumns.length > 1 || phoneUpdateParseResult.mapping.ambiguousWhatsappColumns.length > 1) && (
+                  <div className="mt-2 rounded-lg border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-amber-50">
+                    يوجد أكثر من عمود رقم. تم اختيار أول عمود للهاتف والثاني للواتساب عند توفره. راجع أول 200 صف قبل التطبيق.
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <ResultTile value={phoneUpdateResult.rowsInFile} label="صف في الملف" />
+              <ResultTile value={phoneUpdateResult.matchedCustomers} label="عملاء مطابقون" />
+              <ResultTile value={phoneUpdateResult.validPhones} label="أرقام صالحة" />
+              <ResultTile value={phoneUpdateResult.invalidPhones} label="أرقام مرفوضة" />
+              <ResultTile value={phoneUpdateResult.wouldUpdatePhone} label="سيحدث الهاتف" />
+              <ResultTile value={phoneUpdateResult.wouldUpdateWhatsapp} label="سيحدث واتساب" />
+              <ResultTile value={phoneUpdateResult.repairedPhoneAlt} label="سيحدث هاتف إضافي" />
+              <ResultTile value={phoneUpdateResult.repairedAddresses} label="سيحدث العنوان" />
+              <ResultTile value={phoneUpdateResult.repairedNames} label="سيحدث الاسم" />
+              <ResultTile value={phoneUpdateResult.repairedBranches} label="سيحدث الفرع" />
+              <ResultTile value={phoneUpdateResult.insertedCustomers} label="عملاء جدد" />
+              <ResultTile value={phoneUpdateResult.skippedExistingValid} label="رقم صالح موجود" />
+              <ResultTile value={phoneUpdateResult.needsReviewRows} label="تحتاج مراجعة" />
+              <ResultTile value={phoneUpdateResult.unmatchedRows} label="غير مطابق" />
+              <ResultTile value={phoneUpdateResult.customersUpdated} label="عملاء تم تحديثهم" />
+              <ResultTile value={phoneUpdateResult.invalidSummaryPhoneCountBefore} label="غير صالح قبل" />
+              <ResultTile value={phoneUpdateResult.invalidSummaryPhoneCountAfter} label="غير صالح بعد" />
+            </div>
+
+            {!phoneUpdateResult.apply && (
+              <div className="rounded-xl border border-amber-300/30 bg-amber-400/10 p-4">
+                <div className="font-bold text-amber-100">تأكيد الكتابة</div>
+                <div className="mt-1 text-sm text-amber-50/85">
+                  لن يتم تحديث أي عميل إلا بعد كتابة العبارة التالية حرفيًا: {CUSTOMER_PHONE_CONFIRMATION}
+                </div>
+                <div className="mt-3 flex flex-col gap-3 md:flex-row">
+                  <input
+                    className="input-dark flex-1"
+                    value={phoneUpdateConfirmText}
+                    onChange={(event) => setPhoneUpdateConfirmText(event.target.value)}
+                    placeholder={CUSTOMER_PHONE_CONFIRMATION}
+                    disabled={phoneUpdateBusy}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleApplyPhoneUpdate}
+                    disabled={phoneUpdateBusy || phoneUpdateConfirmText.trim() !== CUSTOMER_PHONE_CONFIRMATION}
+                    className="btn-primary disabled:opacity-50"
+                  >
+                    تطبيق استيراد العملاء
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="rounded-2xl border border-white/10 bg-white/5 overflow-hidden">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-3 text-sm font-bold text-white">
+                <span>أول 200 صف من نتيجة الفحص</span>
+                <button type="button" onClick={() => downloadPhoneUpdatePreviewReport("all")} className="btn-secondary px-3 py-1 text-xs">
+                  كل المعاينة
+                </button>
+                <button type="button" onClick={() => downloadPhoneUpdatePreviewReport("repair")} className="btn-secondary px-3 py-1 text-xs">
+                  سيتم إصلاحهم
+                </button>
+                <button type="button" onClick={() => downloadPhoneUpdatePreviewReport("review")} className="btn-secondary px-3 py-1 text-xs">
+                  تحتاج مراجعة
+                </button>
+                <button type="button" onClick={() => downloadPhoneUpdatePreviewReport("invalid")} className="btn-secondary px-3 py-1 text-xs">
+                  أرقام مرفوضة
+                </button>
+                <button type="button" onClick={() => downloadPhoneUpdatePreviewReport("unmatched")} className="btn-secondary px-3 py-1 text-xs">
+                  غير مطابق
+                </button>
+              </div>
+              <div className="max-h-72 overflow-auto">
+                <table className="data-table">
+                  <thead className="sticky top-0 z-10 bg-[#1B2B4B]">
+                    <tr>
+                      <th>#</th>
+                      <th>الكود</th>
+                      <th>العميل</th>
+                      <th>الفرع</th>
+                      <th>العنوان</th>
+                      <th>الهاتف الجديد</th>
+                      <th>واتساب جديد</th>
+                      <th>هاتف إضافي</th>
+                      <th>الحالة</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {phoneUpdateResult.rows.map((row) => (
+                      <tr key={row.row_no}>
+                        <td className="text-slate-500 text-xs">{row.row_no}</td>
+                        <td className="num">{row.customer_code || "-"}</td>
+                        <td className="text-white font-medium">{row.customer_name || "-"}</td>
+                        <td>{row.branch || "-"}</td>
+                        <td className="max-w-[220px] truncate">{row.address || "-"}</td>
+                        <td className="num text-teal-300">{row.new_phone || "-"}</td>
+                        <td className="num text-teal-300">{row.new_whatsapp_phone || "-"}</td>
+                        <td className="num text-teal-300">{row.phone_alt || "-"}</td>
+                        <td>
+                          <span className={`rounded-full px-2 py-1 text-xs font-bold ${
+                            row.status === "ready_to_update"
+                              ? "bg-emerald-400/15 text-emerald-100"
+                              : row.status.includes("review")
+                                ? "bg-amber-400/15 text-amber-100"
+                                : row.status === "unmatched" || row.status === "invalid_phone"
+                                  ? "bg-rose-400/15 text-rose-100"
+                                  : "bg-slate-400/15 text-slate-100"
+                          }`}>
+                            {customerImportStatusLabel(row.status)}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {isAdmin && (
@@ -878,6 +1181,32 @@ export default function Invoices() {
                 <div className="font-bold text-teal-100">حالة تحديث الملخصات</div>
                 <div className="mt-2 text-sm text-teal-50/85">
                   {importSummary.summaryRefreshMessage || "لم يتم طلب تحديث ملخصات إضافي."}
+                </div>
+                <div className="mt-4 space-y-2">
+                  {(importSummary.postImportRefreshSteps || []).map((refreshStep) => {
+                    const isSuccess = refreshStep.status === "success";
+                    const isFailed = refreshStep.status === "failed";
+                    return (
+                      <div
+                        key={refreshStep.key}
+                        className={`rounded-xl border px-3 py-2 text-sm ${
+                          isSuccess
+                            ? "border-emerald-300/35 bg-emerald-300/15 text-emerald-50"
+                            : isFailed
+                              ? "border-rose-300/35 bg-rose-300/15 text-rose-50"
+                              : "border-amber-300/35 bg-amber-300/15 text-amber-50"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-bold">{refreshStep.label}</span>
+                          <span className="shrink-0 rounded-full bg-white/15 px-2 py-0.5 text-xs">
+                            {isSuccess ? "تم" : isFailed ? "فشل" : "تخطي"}
+                          </span>
+                        </div>
+                        <div className="mt-1 opacity-90">{refreshStep.message}</div>
+                      </div>
+                    );
+                  })}
                 </div>
                 <button
                   type="button"

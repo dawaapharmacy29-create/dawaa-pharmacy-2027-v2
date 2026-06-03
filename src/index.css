@@ -921,3 +921,439 @@ html.light-mode .crm-timeline-item {
   80% { opacity: 1; }
   100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
 }
+
+/* Dawaa UI guard: one readable color language across legacy dark cards and the new light shell. */
+:root {
+  --dawaa-bg-app: #f4faf9;
+  --dawaa-bg-card: #ffffff;
+  --dawaa-bg-soft: #eefaf8;
+  --dawaa-sidebar-bg: #101f35;
+  --dawaa-primary: #11b8ac;
+  --dawaa-primary-dark: #087d77;
+  --dawaa-primary-soft: #dff8f5;
+  --dawaa-border: #cfe7e4;
+  --dawaa-border-strong: #9fe0d8;
+  --dawaa-text: #102033;
+  --dawaa-muted: #5d7088;
+  --dawaa-success: #047857;
+  --dawaa-success-soft: #dcfce7;
+  --dawaa-warning: #a16207;
+  --dawaa-warning-soft: #fef3c7;
+  --dawaa-danger: #b91c1c;
+  --dawaa-danger-soft: #fee2e2;
+  --dawaa-info: #1d4ed8;
+  --dawaa-info-soft: #dbeafe;
+  --dawaa-shadow-card: 0 14px 34px rgba(15, 32, 51, .07);
+}
+
+html.light-mode body,
+html.light-mode main {
+  background: var(--dawaa-bg-app) !important;
+  color: var(--dawaa-text) !important;
+}
+
+html.light-mode aside {
+  background: #ffffff !important;
+}
+
+html.light-mode .stat-card,
+html.light-mode .dawaa-card,
+html.light-mode .dawaa-panel,
+html.light-mode .modal-panel,
+html.light-mode [class*="bg-[#1B2B4B]"],
+html.light-mode [class*="bg-[#16253f]"],
+html.light-mode [class*="bg-[#151f34]"],
+html.light-mode [class*="bg-[#10213a]"] {
+  background: var(--dawaa-bg-card) !important;
+  border-color: var(--dawaa-border) !important;
+  color: var(--dawaa-text) !important;
+  box-shadow: var(--dawaa-shadow-card) !important;
+}
+
+html.light-mode [class*="bg-white/5"],
+html.light-mode [class*="bg-white/10"],
+html.light-mode .bg-white\/5,
+html.light-mode .bg-white\/10 {
+  background: var(--dawaa-bg-soft) !important;
+}
+
+html.light-mode h1,
+html.light-mode h2,
+html.light-mode h3,
+html.light-mode h4,
+html.light-mode .page-title,
+html.light-mode .section-title,
+html.light-mode .text-white,
+html.light-mode .text-slate-50,
+html.light-mode .text-slate-100,
+html.light-mode .text-slate-200 {
+  color: var(--dawaa-text) !important;
+}
+
+html.light-mode .text-slate-300,
+html.light-mode .text-slate-400,
+html.light-mode .text-slate-500,
+html.light-mode .text-slate-600 {
+  color: var(--dawaa-muted) !important;
+}
+
+html.light-mode .data-table,
+html.light-mode .dawaa-table {
+  background: var(--dawaa-bg-card) !important;
+  color: var(--dawaa-text) !important;
+}
+
+html.light-mode .data-table thead,
+html.light-mode .data-table th,
+html.light-mode .dawaa-table thead th {
+  background: #ecf7f5 !important;
+  border-color: var(--dawaa-border) !important;
+  color: #244158 !important;
+}
+
+html.light-mode .data-table td,
+html.light-mode .dawaa-table td {
+  background: #ffffff !important;
+  border-color: #dcebea !important;
+  color: #18304a !important;
+}
+
+html.light-mode .data-table tbody tr:hover td,
+html.light-mode .dawaa-table tbody tr:hover td {
+  background: #f3fbfa !important;
+}
+
+html.light-mode input,
+html.light-mode select,
+html.light-mode textarea,
+html.light-mode .input-dark,
+html.light-mode .dawaa-input {
+  background: #ffffff !important;
+  border-color: var(--dawaa-border) !important;
+  color: var(--dawaa-text) !important;
+}
+
+html.light-mode input::placeholder,
+html.light-mode textarea::placeholder,
+html.light-mode .input-dark::placeholder {
+  color: #8193aa !important;
+}
+
+html.light-mode .badge-success,
+html.light-mode [class*="bg-green-500/"],
+html.light-mode [class*="bg-emerald-500/"] {
+  background: var(--dawaa-success-soft) !important;
+  border-color: #a7f3d0 !important;
+  color: var(--dawaa-success) !important;
+}
+
+html.light-mode .badge-warning,
+html.light-mode [class*="bg-amber-500/"],
+html.light-mode [class*="bg-yellow-500/"] {
+  background: var(--dawaa-warning-soft) !important;
+  border-color: #fde68a !important;
+  color: var(--dawaa-warning) !important;
+}
+
+html.light-mode .badge-danger,
+html.light-mode [class*="bg-red-500/"],
+html.light-mode [class*="bg-rose-500/"] {
+  background: var(--dawaa-danger-soft) !important;
+  border-color: #fecaca !important;
+  color: var(--dawaa-danger) !important;
+}
+
+html.light-mode .badge-info,
+html.light-mode [class*="bg-blue-500/"],
+html.light-mode [class*="bg-purple-500/"],
+html.light-mode [class*="bg-violet-500/"] {
+  background: var(--dawaa-info-soft) !important;
+  border-color: #bfdbfe !important;
+  color: var(--dawaa-info) !important;
+}
+
+html.light-mode .btn-primary,
+html.light-mode .dawaa-button-primary {
+  background: var(--dawaa-primary) !important;
+  color: #ffffff !important;
+}
+
+html.light-mode .btn-secondary {
+  background: #ffffff !important;
+  border-color: var(--dawaa-border) !important;
+  color: var(--dawaa-text) !important;
+}
+
+html:not(.light-mode) .data-table th,
+html:not(.light-mode) .dawaa-table th {
+  background: #edf5f8 !important;
+  color: #17324d !important;
+}
+
+html:not(.light-mode) .data-table td,
+html:not(.light-mode) .dawaa-table td {
+  color: #e7f4f7 !important;
+}
+
+html:not(.light-mode) .data-table tbody tr:hover td,
+html:not(.light-mode) .dawaa-table tbody tr:hover td {
+  background: rgba(20, 184, 166, .08) !important;
+}
+
+html:not(.light-mode) .text-slate-500,
+html:not(.light-mode) .text-slate-400 {
+  color: #a7bdd3 !important;
+}
+
+/* ===== Final app-wide contrast contract =====
+   Light theme: light surfaces + dark readable text.
+   Dark theme: dark surfaces + light readable text.
+   This layer intentionally comes last to neutralize legacy mixed colors. */
+html {
+  --theme-bg: #071522;
+  --theme-surface: #10243d;
+  --theme-surface-2: #132d4d;
+  --theme-soft: rgba(20, 184, 166, .12);
+  --theme-border: rgba(125, 211, 252, .18);
+  --theme-border-strong: rgba(45, 212, 191, .42);
+  --theme-text: #eef8fb;
+  --theme-heading: #ffffff;
+  --theme-muted: #b8cbdb;
+  --theme-primary: #2dd4bf;
+  --theme-primary-text: #05202f;
+  --theme-input: #0b1d31;
+  --theme-table-head: #0e2239;
+  --theme-table-row: #10243d;
+  --theme-table-hover: #143253;
+  color-scheme: dark;
+}
+
+html.light-mode {
+  --theme-bg: #f4faf9;
+  --theme-surface: #ffffff;
+  --theme-surface-2: #f0f8f7;
+  --theme-soft: #e4f8f5;
+  --theme-border: #cfe7e4;
+  --theme-border-strong: #8ddfd7;
+  --theme-text: #102033;
+  --theme-heading: #071527;
+  --theme-muted: #5d7088;
+  --theme-primary: #0fafa3;
+  --theme-primary-text: #ffffff;
+  --theme-input: #ffffff;
+  --theme-table-head: #ecf7f5;
+  --theme-table-row: #ffffff;
+  --theme-table-hover: #f2fbfa;
+  color-scheme: light;
+}
+
+html body,
+html main,
+html .min-h-screen {
+  background: var(--theme-bg) !important;
+  color: var(--theme-text) !important;
+}
+
+html.light-mode body,
+html.light-mode main,
+html.light-mode .min-h-screen {
+  background:
+    radial-gradient(circle at top right, rgba(45, 212, 191, .16), transparent 30%),
+    var(--theme-bg) !important;
+}
+
+html:not(.light-mode) body,
+html:not(.light-mode) main,
+html:not(.light-mode) .min-h-screen {
+  background:
+    radial-gradient(circle at top right, rgba(45, 212, 191, .13), transparent 30%),
+    linear-gradient(180deg, #071522 0%, #0a1727 100%) !important;
+}
+
+html .stat-card,
+html .dawaa-card,
+html .dawaa-panel,
+html .modal-panel,
+html .crm-card,
+html .crm-timeline-item,
+html [class*="bg-[#1B2B4B]"],
+html [class*="bg-[#16253f]"],
+html [class*="bg-[#151f34]"],
+html [class*="bg-[#10213a]"],
+html [class*="bg-slate-900"],
+html [class*="bg-slate-800"] {
+  background: var(--theme-surface) !important;
+  border-color: var(--theme-border) !important;
+  color: var(--theme-text) !important;
+}
+
+html.light-mode [class*="bg-slate-900"],
+html.light-mode [class*="bg-slate-800"],
+html.light-mode [class*="bg-navy-900"] {
+  background: var(--theme-surface) !important;
+  color: var(--theme-text) !important;
+}
+
+html [class*="bg-white/5"],
+html [class*="bg-white/10"],
+html .bg-white\/5,
+html .bg-white\/10 {
+  background: var(--theme-soft) !important;
+}
+
+html h1,
+html h2,
+html h3,
+html h4,
+html .page-title,
+html .section-title,
+html .text-white,
+html .text-slate-50,
+html .text-slate-100,
+html .text-slate-200,
+html .text-slate-900,
+html .text-slate-950 {
+  color: var(--theme-heading) !important;
+}
+
+html .text-slate-300,
+html .text-slate-400,
+html .text-slate-500,
+html .text-slate-600,
+html .text-slate-700 {
+  color: var(--theme-muted) !important;
+}
+
+html.light-mode .text-slate-700,
+html.light-mode .text-slate-800,
+html.light-mode .text-slate-900,
+html.light-mode .text-slate-950 {
+  color: var(--theme-heading) !important;
+}
+
+html input,
+html select,
+html textarea,
+html .input-dark,
+html .dawaa-input {
+  background: var(--theme-input) !important;
+  border-color: var(--theme-border) !important;
+  color: var(--theme-text) !important;
+}
+
+html input::placeholder,
+html textarea::placeholder,
+html .input-dark::placeholder,
+html .dawaa-input::placeholder {
+  color: var(--theme-muted) !important;
+  opacity: .9;
+}
+
+html .data-table,
+html .dawaa-table {
+  background: var(--theme-surface) !important;
+  color: var(--theme-text) !important;
+}
+
+html .data-table th,
+html .dawaa-table th,
+html thead th {
+  background: var(--theme-table-head) !important;
+  border-color: var(--theme-border) !important;
+  color: var(--theme-heading) !important;
+}
+
+html .data-table td,
+html .dawaa-table td,
+html tbody td {
+  background: var(--theme-table-row) !important;
+  border-color: var(--theme-border) !important;
+  color: var(--theme-text) !important;
+}
+
+html .data-table tbody tr:hover td,
+html .dawaa-table tbody tr:hover td,
+html tbody tr:hover td {
+  background: var(--theme-table-hover) !important;
+}
+
+html .btn-primary,
+html .dawaa-button-primary {
+  background: var(--theme-primary) !important;
+  color: var(--theme-primary-text) !important;
+  border-color: var(--theme-border-strong) !important;
+}
+
+html .btn-secondary {
+  background: var(--theme-surface-2) !important;
+  color: var(--theme-text) !important;
+  border-color: var(--theme-border) !important;
+}
+
+html aside {
+  background: #0d1b2f !important;
+  color: #edf7fb !important;
+  border-color: rgba(125, 211, 252, .12) !important;
+}
+
+html.light-mode aside {
+  background: #ffffff !important;
+  color: #102033 !important;
+  border-color: #d9e7e5 !important;
+}
+
+html aside .nav-item-active {
+  background: rgba(45, 212, 191, .18) !important;
+  color: #8ffcf0 !important;
+  border-color: rgba(45, 212, 191, .42) !important;
+}
+
+html.light-mode aside .nav-item-active {
+  background: #dcf8f4 !important;
+  color: #04766d !important;
+  border-color: #8ddfd7 !important;
+}
+
+html aside .nav-item-inactive {
+  color: #bfd2e2 !important;
+}
+
+html.light-mode aside .nav-item-inactive {
+  color: #52677f !important;
+}
+
+html .badge-success {
+  background: rgba(16, 185, 129, .14) !important;
+  color: #34d399 !important;
+  border-color: rgba(52, 211, 153, .28) !important;
+}
+
+html.light-mode .badge-success {
+  background: #dcfce7 !important;
+  color: #047857 !important;
+  border-color: #a7f3d0 !important;
+}
+
+html .badge-warning {
+  background: rgba(245, 158, 11, .14) !important;
+  color: #fbbf24 !important;
+  border-color: rgba(251, 191, 36, .28) !important;
+}
+
+html.light-mode .badge-warning {
+  background: #fef3c7 !important;
+  color: #a16207 !important;
+  border-color: #fde68a !important;
+}
+
+html .badge-danger {
+  background: rgba(239, 68, 68, .14) !important;
+  color: #fca5a5 !important;
+  border-color: rgba(252, 165, 165, .28) !important;
+}
+
+html.light-mode .badge-danger {
+  background: #fee2e2 !important;
+  color: #b91c1c !important;
+  border-color: #fecaca !important;
+}

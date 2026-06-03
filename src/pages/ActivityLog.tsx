@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import { useEscapeKey } from "@/hooks/useEscapeKey";
 import { Activity, Database, Search, ExternalLink, X } from "lucide-react";
 import { BRANCHES } from "@/lib/constants";
-import { formatDateTime } from "@/lib/utils";
+import { formatDateTime, matchesOrderedSegments } from "@/lib/utils";
 import { formatActivityDetails } from "@/lib/activityLog";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
@@ -33,13 +33,13 @@ interface ActivityLogEntry {
 const ALL = "الكل";
 
 const MODULE_COLORS: Record<string, string> = {
-  النظام: "badge-info",
-  النقاط: "badge-success",
-  العملاء: "badge-purple",
+  "النظام": "badge-info",
+  "النقاط": "badge-success",
+  "العملاء": "badge-purple",
   "خدمة العملاء": "badge-info",
-  الفواتير: "badge-warning",
-  التوصيل: "bg-amber-500/15 border-amber-500/25 text-amber-400 text-xs font-semibold px-2.5 py-0.5 rounded-full border",
-  الفريق: "bg-purple-500/15 border-purple-500/25 text-purple-400 text-xs font-semibold px-2.5 py-0.5 rounded-full border",
+  "الفواتير": "badge-warning",
+  "التوصيل": "bg-amber-500/15 border-amber-500/25 text-amber-400 text-xs font-semibold px-2.5 py-0.5 rounded-full border",
+  "الفريق": "bg-purple-500/15 border-purple-500/25 text-purple-400 text-xs font-semibold px-2.5 py-0.5 rounded-full border",
   "تقييم المحادثات": "badge-info",
   "تقييم الشيفتات": "badge-warning",
   "أدوية الحوافز": "bg-teal-500/15 border-teal-500/25 text-teal-400 text-xs font-semibold px-2.5 py-0.5 rounded-full border",
@@ -52,7 +52,7 @@ function moduleBadge(moduleName: string) {
 }
 
 function normalizeSearch(value: string) {
-  return value.replace(/\*/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  return value.replace(/\s+/g, " ").trim();
 }
 
 function logBranch(log: ActivityLogEntry) {
@@ -115,20 +115,20 @@ export default function ActivityLog() {
     const fromTime = dateFrom ? new Date(dateFrom).getTime() : 0;
 
     return logs.filter((log) => {
-      const details = formatActivityDetails(log.details).toLowerCase();
+      const details = formatActivityDetails(log.details);
       const operation = log.operation || log.action || "";
       const module = log.module || log.entity_type || "";
       const matchSearch =
         !query ||
-        String(log.user_name || "").toLowerCase().includes(query) ||
-        String(log.user_role || "").toLowerCase().includes(query) ||
-        operation.toLowerCase().includes(query) ||
-        module.toLowerCase().includes(query) ||
-        String(log.target_type || "").toLowerCase().includes(query) ||
-        String(log.target_id || "").toLowerCase().includes(query) ||
-        String(log.entity_type || "").toLowerCase().includes(query) ||
-        String(log.entity_id || "").toLowerCase().includes(query) ||
-        details.includes(query);
+        matchesOrderedSegments(String(log.user_name || ""), query) ||
+        matchesOrderedSegments(String(log.user_role || ""), query) ||
+        matchesOrderedSegments(operation, query) ||
+        matchesOrderedSegments(module, query) ||
+        matchesOrderedSegments(String(log.target_type || ""), query) ||
+        matchesOrderedSegments(String(log.target_id || ""), query) ||
+        matchesOrderedSegments(String(log.entity_type || ""), query) ||
+        matchesOrderedSegments(String(log.entity_id || ""), query) ||
+        matchesOrderedSegments(details, query);
       const matchBranch = branchFilter === ALL || logBranch(log) === branchFilter;
       const matchModule = moduleFilter === ALL || module === moduleFilter;
       const matchUser = userFilter === ALL || log.user_name === userFilter;
@@ -186,8 +186,8 @@ export default function ActivityLog() {
 
       <div className="flex flex-col gap-3">
         <div className="relative flex-1">
-          <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="بحث في المستخدم أو العملية أو التفاصيل..." className="input-dark pr-10 w-full" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="بحث في المستخدم أو العملية أو التفاصيل..." className="input-dark pl-10 w-full" />
         </div>
         <div className="grid md:grid-cols-3 lg:grid-cols-6 gap-2">
           <select value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)} className="input-dark">
@@ -381,3 +381,5 @@ export default function ActivityLog() {
     </div>
   );
 }
+
+

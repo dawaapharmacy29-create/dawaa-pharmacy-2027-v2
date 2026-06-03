@@ -83,6 +83,14 @@ function uniqueEmployeesByIdentity(rows: Employee[]) {
   return [...map.values()];
 }
 
+function staffDisplayName(employee: Pick<Employee, "name" | "branch" | "role">, allRows: Employee[]) {
+  const key = normalizeStaffName(employee.name);
+  const duplicates = allRows.filter((row) => normalizeStaffName(row.name) === key);
+  if (duplicates.length <= 1) return employee.name;
+  const suffix = [employee.branch, employee.role].filter(Boolean).join(" - ");
+  return suffix ? `${employee.name} (${suffix})` : employee.name;
+}
+
 export default function Team() {
   const { user, canManage } = useAuth();
   const canCreateTeam = canManage || user?.permissions?.create_team_member === true;
@@ -582,7 +590,7 @@ function RankingList({ title, rows }: { title: string; rows: Array<Employee & { 
         {rows.slice(0, 8).map((employee, index) => (
           <Link key={employee.id} to={`/staff/${employee.id}`} className="flex items-center gap-3 rounded-lg bg-[#1B2B4B] px-3 py-2 hover:bg-white/10 transition-colors">
             <span className="w-6 h-6 rounded-full bg-teal-500/15 text-teal-300 text-xs flex items-center justify-center num">{index + 1}</span>
-            <span className="text-white text-sm font-bold flex-1">{employee.name}</span>
+            <span className="text-white text-sm font-bold flex-1">{staffDisplayName(employee, rows)}</span>
             <span className="text-slate-400 text-xs">{employee.role}</span>
             <span className="text-teal-300 font-bold num">{employee.cyclePoints}</span>
           </Link>
@@ -611,7 +619,7 @@ function EmployeeDetailsModal({ employee, schedules, transactions, onClose }: { 
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-panel max-w-3xl" onClick={e => e.stopPropagation()}>
         <div className="p-5 border-b border-[#2d4063]">
-          <div className="text-white font-bold text-lg">{employee.name}</div>
+          <div className="text-white font-bold text-lg">{staffDisplayName(employee, [employee])}</div>
           <div className="text-slate-400 text-sm">{employee.role} - {employee.branch}</div>
         </div>
         <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-3">

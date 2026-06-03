@@ -13,7 +13,7 @@ import { type PointsTxnStatus } from "@/lib/pointsWorkflow";
 import { getCurrentCycle } from "@/lib/pharmacy-cycle";
 import { calculateStaffCycleIncentiveFromRows, getStaffCycleIncentive, type StaffCycleIncentive } from "@/lib/staffIncentiveService";
 import { mergeStaffChoices } from "@/lib/staffFallback";
-import { formatCurrency, formatDateTime, percent, toNumber } from "@/lib/utils";
+import { formatCurrency, formatDateTime, matchesOrderedSegments, percent, toNumber } from "@/lib/utils";
 import { useAuth, getCurrentUserProfile } from "@/hooks/useAuth";
 import { logActivity, useSupabaseQuery } from "@/hooks/useSupabaseQuery";
 import { supabase } from "@/lib/supabase";
@@ -22,6 +22,8 @@ import { TABLES } from "@/lib/supabaseTables";
 interface StaffMember {
   id: string;
   name: string;
+  original_name?: string;
+  display_name?: string;
   role: string;
   branch: string;
   branch_id?: string | null;
@@ -136,31 +138,37 @@ export default function Points() {
   const validStaffNames = useMemo(() => {
     const set = new Set<string>();
     for (const staff of staffChoices) {
-      const name = staff.name.trim();
-      if (!name) continue;
-      set.add(name);
-      set.add(normalizeStaffLookupKey(name));
+      const names = [staff.name, staff.original_name, staff.display_name].filter(Boolean) as string[];
+      for (const rawName of names) {
+        const name = rawName.trim();
+        if (!name) continue;
+        set.add(name);
+        set.add(normalizeStaffLookupKey(name));
+      }
     }
     return set;
   }, [staffChoices]);
   const staffIdByName = useMemo(() => {
     const map = new Map<string, string>();
     for (const staff of staffChoices) {
-      const name = staff.name.trim();
-      if (name && !map.has(name)) map.set(name, staff.id);
-      const normalizedName = normalizeStaffLookupKey(name);
-      if (normalizedName && !map.has(normalizedName)) map.set(normalizedName, staff.id);
+      const names = [staff.name, staff.original_name, staff.display_name].filter(Boolean) as string[];
+      for (const rawName of names) {
+        const name = rawName.trim();
+        if (name && !map.has(name)) map.set(name, staff.id);
+        const normalizedName = normalizeStaffLookupKey(name);
+        if (normalizedName && !map.has(normalizedName)) map.set(normalizedName, staff.id);
+      }
     }
     return map;
   }, [staffChoices]);
-  const canonicalRecords = useMemo(() => records.map((row) => {
+  const canonicalRecords = useMemo(() => (records || []).map((row) => {
     const employee = staffChoices.find((staff) => staff.id === (row.staff_id || row.employee_id));
     const signedPoints = pointRecordDelta(row);
     const rawPoints = Math.abs(signedPoints);
     return {
       ...row,
       employee_id: row.employee_id || row.staff_id || "",
-      employee_name: row.employee_name || employee?.name || "",
+      employee_name: row.employee_name || employee?.original_name || employee?.name || "",
       points: rawPoints,
       points_delta: signedPoints,
       type: row.type === "reward" ? "bonus" : row.type === "penalty" ? "deduction" : row.type,
@@ -180,29 +188,28 @@ export default function Points() {
   const approvedCycleRecords = useMemo(() => {
     return cycleRecords.filter((row) => isApprovedPointRecord(row));
   }, [cycleRecords]);
-  const normalizedSearch = search.replace(/\*/g, " ").replace(/\s+/g, " ").trim();
+  const normalizedSearch = search.replace(/\s+/g, " ").trim();
 
   const filteredStaff = staffChoices.filter((staff) => {
     const branchMatches = branchFilter === "الكل" || staff.branch === branchFilter;
-    const searchText = `${staff.name || ""} ${staff.role || ""} ${staff.branch || ""} ${staff.phone || ""}`.replace(/\s+/g, " ");
-    const searchMatches = normalizedSearch === "" || searchText.includes(normalizedSearch);
+    const searchText = `${staff.name || ""} ${staff.original_name || ""} ${staff.display_name || ""} ${staff.role || ""} ${staff.branch || ""} ${staff.phone || ""}`.replace(/\s+/g, " ");
+    const searchMatches = normalizedSearch === "" || matchesOrderedSegments(searchText, normalizedSearch);
     return branchMatches && searchMatches;
   });
 
-  const topPerformers = [...staffChoices]
-    .sort((a, b) => staffIncentiveSummary(b).currentPoints - staffIncentiveSummary(a).currentPoints)
-    .slice(0, 3);
   const pendingApprovals = validRecords.filter((row) => pointRecordStatus(row) === "pending" && isDeductionRecord(row));
   const myCycleRecords = approvedCycleRecords.filter((row) => row.employee_id === user?.id);
 
   const staffCycleRecords = (staff: StaffMember) => {
-    const normalizedName = normalizeStaffLookupKey(staff.name);
+    const normalizedName = normalizeStaffLookupKey(staff.original_name || staff.name);
     return approvedCycleRecords.filter((row) => {
       const employeeName = String(row.employee_name || "").trim();
       return (
         row.employee_id === staff.id ||
         row.staff_id === staff.id ||
         employeeName === staff.name.trim() ||
+        employeeName === (staff.original_name || "").trim() ||
+        employeeName === (staff.display_name || "").trim() ||
         normalizeStaffLookupKey(employeeName) === normalizedName
       );
     });
@@ -245,6 +252,10 @@ export default function Points() {
     };
   };
 
+  const topPerformers = [...staffChoices]
+    .sort((a, b) => staffIncentiveSummary(b).currentPoints - staffIncentiveSummary(a).currentPoints)
+    .slice(0, 3);
+
   const printAllIncentivesReport = () => {
     const rows = staffChoices.map(staffIncentiveSummary);
     const totalIncentive = rows.reduce((sum, row) => sum + row.incentive, 0);
@@ -252,7 +263,7 @@ export default function Points() {
     const totalPenalties = rows.reduce((sum, row) => sum + row.penaltyPoints, 0);
     const reportRows = rows
       .map((row) => `<tr>
-        <td>${row.staff.name}</td>
+        <td>${row.staff.display_name || row.staff.name}</td>
         <td>${row.staff.role || "-"}</td>
         <td>${row.staff.branch || "-"}</td>
         <td>${row.currentPoints} / ${row.maxPoints}</td>
@@ -314,7 +325,12 @@ export default function Points() {
 
     if (approve && isDeductionRecord(row)) {
       const rowEmployeeName = normalizeStaffLookupKey(String(row.employee_name || ""));
-      const employee = staffChoices.find((staff) => staff.id === row.employee_id || normalizeStaffLookupKey(staff.name) === rowEmployeeName);
+      const employee = staffChoices.find((staff) =>
+        staff.id === row.employee_id ||
+        normalizeStaffLookupKey(staff.name) === rowEmployeeName ||
+        normalizeStaffLookupKey(staff.original_name || "") === rowEmployeeName ||
+        normalizeStaffLookupKey(staff.display_name || "") === rowEmployeeName
+      );
       if (employee) {
         const currentIncentive = calculateStaffCycleIncentiveFromRows({ staff: employee, records: approvedCycleRecords, cycle });
         await applyStaffDelta(
@@ -322,7 +338,7 @@ export default function Points() {
           currentIncentive.finalPoints,
           currentIncentive.startingPoints,
           -recordPoints(row),
-          employee.name,
+          employee.original_name || employee.name,
           employee.branch,
         );
       }
@@ -416,7 +432,7 @@ export default function Points() {
             className={`stat-card text-center border hover:border-teal-500/40 transition-colors ${index === 0 ? "border-amber-500/30" : index === 1 ? "border-slate-400/20" : "border-orange-600/20"}`}
           >
             <div className="text-3xl mb-2">{index === 0 ? "1" : index === 1 ? "2" : "3"}</div>
-            <div className="text-white font-bold text-sm">{employee.name}</div>
+            <div className="text-white font-bold text-sm">{employee.display_name || employee.name}</div>
             <div className="text-slate-400 text-xs mt-0.5">{employee.branch}</div>
             <div className={`text-2xl font-bold num mt-2 ${index === 0 ? "text-amber-400" : index === 1 ? "text-slate-300" : "text-orange-400"}`}>{employeePoints}</div>
             <div className="text-slate-400 text-xs mt-1">
@@ -440,7 +456,7 @@ export default function Points() {
       {tab === "salary" && selectedStaffForSalary && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           <SalaryCalculator
-            staffName={selectedStaffForSalary.name}
+            staffName={selectedStaffForSalary.display_name || selectedStaffForSalary.name}
             role={selectedStaffForSalary.role}
             branch={selectedStaffForSalary.branch}
             cycleLabel={cycle.label}
@@ -451,11 +467,11 @@ export default function Points() {
             records={staffIncentiveSummary(selectedStaffForSalary).records}
           />
           <div className="stat-card">
-            <h3 className="text-white font-bold mb-3">ملخص حوافز {selectedStaffForSalary.name}</h3>
+            <h3 className="text-white font-bold mb-3">ملخص حوافز {selectedStaffForSalary.display_name || selectedStaffForSalary.name}</h3>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-slate-400">الاسم:</span>
-                <span className="text-white">{selectedStaffForSalary.name}</span>
+                <span className="text-white">{selectedStaffForSalary.display_name || selectedStaffForSalary.name}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">الفرع:</span>
@@ -530,7 +546,7 @@ export default function Points() {
               const points = summary.currentPoints;
               const maxPoints = summary.maxPoints;
               const pointPercent = percent(points, maxPoints);
-              const normalizedEmployeeName = normalizeStaffLookupKey(employee.name);
+              const normalizedEmployeeName = normalizeStaffLookupKey(employee.original_name || employee.name);
               const employeeRecords = summary.records;
               const rewards = summary.rewardPoints;
               const deductions = summary.penaltyPoints;
@@ -538,9 +554,9 @@ export default function Points() {
               return (
                 <Link key={employee.id} to={`/staff/${employee.id}`} className="stat-card hover:border-teal-500/30 block transition-colors">
                   <div className="flex items-center gap-3 mb-3">
-                    <div className="w-10 h-10 rounded-full bg-teal-500/15 flex items-center justify-center text-teal-400 font-bold">{employee.name[0]}</div>
+                    <div className="w-10 h-10 rounded-full bg-teal-500/15 flex items-center justify-center text-teal-400 font-bold">{(employee.original_name || employee.name)[0]}</div>
                     <div className="flex-1">
-                      <div className="text-white font-bold text-sm">{employee.name}</div>
+                      <div className="text-white font-bold text-sm">{employee.display_name || employee.name}</div>
                       <div className="text-slate-400 text-xs">
                         {employee.role} - {employee.branch}
                       </div>
@@ -627,7 +643,7 @@ function RecordsTable({
             </tr>
           </thead>
           <tbody>
-            {records.map((row) => {
+            {(records || []).map((row) => {
               const source = row.source_type || row.source;
               const rawEmployeeId = String(row.employee_id || "").trim();
               const employeeName = String(row.employee_name || "").trim();

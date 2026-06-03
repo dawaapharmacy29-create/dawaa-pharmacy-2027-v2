@@ -3,6 +3,8 @@ import { INITIAL_POINTS } from "@/lib/constants";
 export interface StaffChoice {
   id: string;
   name: string;
+  original_name?: string;
+  display_name?: string;
   role: string;
   branch: string;
   branch_id?: string | null;
@@ -55,6 +57,8 @@ function normalizeStaff(row: Record<string, unknown>): StaffChoice {
   return {
     id,
     name,
+    original_name: name,
+    display_name: name,
     role: String(row.role || row.staff_role || "").trim(),
     branch,
     branch_id: (row.branch_id as string | null | undefined) || null,
@@ -75,6 +79,41 @@ function sortStaff(a: StaffChoice, b: StaffChoice) {
   return `${a.branch}-${a.role}-${a.name}`.localeCompare(`${b.branch}-${b.role}-${b.name}`, "ar");
 }
 
+function normalizeDuplicateNameKey(value: string) {
+  return value
+    .replace(/[\u0623\u0625\u0622]/g, "\u0627")
+    .replace(/\u0649/g, "\u064a")
+    .replace(/\u0629/g, "\u0647")
+    .replace(/^(\u062f|dr|doctor|d)\.?\s*\/?\s*/i, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function withDuplicateDisplayNames(rows: StaffChoice[]) {
+  const groups = new Map<string, StaffChoice[]>();
+  rows.forEach((row) => {
+    const key = normalizeDuplicateNameKey(row.original_name || row.name);
+    if (!key) return;
+    const group = groups.get(key) || [];
+    group.push(row);
+    groups.set(key, group);
+  });
+
+  return rows.map((row) => {
+    const group = groups.get(normalizeDuplicateNameKey(row.original_name || row.name)) || [];
+    if (group.length <= 1) return row;
+    const branch = row.branch && row.branch !== UNKNOWN_BRANCH ? row.branch : "";
+    const role = row.role || "";
+    const suffix = [branch, role].filter(Boolean).join(" - ") || row.id.slice(0, 8);
+    return {
+      ...row,
+      display_name: `${row.original_name || row.name} (${suffix})`,
+    };
+  });
+}
+
 function isActiveRealStaff(row: unknown): row is Record<string, unknown> {
   if (!row || typeof row !== "object") return false;
   const next = row as Record<string, unknown>;
@@ -86,7 +125,7 @@ function isActiveRealStaff(row: unknown): row is Record<string, unknown> {
 }
 
 export function realStaffChoices(rows: unknown[] | null | undefined): StaffChoice[] {
-  return (rows || []).filter(isActiveRealStaff).map(normalizeStaff).sort(sortStaff);
+  return withDuplicateDisplayNames((rows || []).filter(isActiveRealStaff).map(normalizeStaff).sort(sortStaff));
 }
 
 export function selectableStaffChoices(rows: unknown[] | null | undefined): StaffChoice[] {

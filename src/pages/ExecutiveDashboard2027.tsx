@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ElementType, type ReactNode } from "react";
+﻿import { useEffect, useMemo, useRef, useState, type ElementType, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Area,
@@ -368,10 +368,10 @@ function TopBar(props: {
 
         <div className="flex min-w-[260px] flex-1 justify-center">
           <label className="relative w-full max-w-md">
-            <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
-              className="h-10 w-full rounded-xl border border-[#E5EAF0] bg-[#F7F9FB] px-10 text-sm font-semibold outline-none transition focus:border-teal-300 focus:bg-white"
-              placeholder="ابحث عن عميل، دكتور، صنف..."
+              className="h-10 w-full rounded-xl border border-[#E5EAF0] bg-[#F7F9FB] py-2 pl-10 pr-3 text-sm font-semibold outline-none transition focus:border-teal-300 focus:bg-white"
+              placeholder="بحث عن عميل، دكتور، صنف... مثال: *ا*س*لا*م"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => {
@@ -818,3 +818,7 @@ function LoadingStrip() {
 function ErrorStrip({ text }: { text: string }) {
   return <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-black text-red-700">{text}</div>;
 }
+
+
+
+
