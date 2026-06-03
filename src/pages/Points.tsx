@@ -153,7 +153,7 @@ export default function Points() {
     }
     return map;
   }, [staffChoices]);
-  const canonicalRecords = useMemo(() => records.map((row) => {
+  const canonicalRecords = useMemo(() => (records || []).map((row) => {
     const employee = staffChoices.find((staff) => staff.id === (row.staff_id || row.employee_id));
     const signedPoints = pointRecordDelta(row);
     const rawPoints = Math.abs(signedPoints);
@@ -189,9 +189,6 @@ export default function Points() {
     return branchMatches && searchMatches;
   });
 
-  const topPerformers = [...staffChoices]
-    .sort((a, b) => staffIncentiveSummary(b).currentPoints - staffIncentiveSummary(a).currentPoints)
-    .slice(0, 3);
   const pendingApprovals = validRecords.filter((row) => pointRecordStatus(row) === "pending" && isDeductionRecord(row));
   const myCycleRecords = approvedCycleRecords.filter((row) => row.employee_id === user?.id);
 
@@ -244,6 +241,10 @@ export default function Points() {
       warnings: incentive.warnings,
     };
   };
+
+  const topPerformers = [...staffChoices]
+    .sort((a, b) => staffIncentiveSummary(b).currentPoints - staffIncentiveSummary(a).currentPoints)
+    .slice(0, 3);
 
   const printAllIncentivesReport = () => {
     const rows = staffChoices.map(staffIncentiveSummary);
@@ -627,7 +628,7 @@ function RecordsTable({
             </tr>
           </thead>
           <tbody>
-            {records.map((row) => {
+            {(records || []).map((row) => {
               const source = row.source_type || row.source;
               const rawEmployeeId = String(row.employee_id || "").trim();
               const employeeName = String(row.employee_name || "").trim();

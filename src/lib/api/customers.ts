@@ -69,6 +69,23 @@ export interface CustomerStats {
   vip: number;
 }
 
+export interface CustomerMonthlyAnalyticsRow {
+  month: string;
+  label: string;
+  registeredCustomers: number | null;
+  purchasedCustomers: number | null;
+  veryImportant: number | null;
+  important: number | null;
+  medium: number | null;
+  normal: number | null;
+}
+
+export interface CustomerMonthlyAnalytics {
+  rows: CustomerMonthlyAnalyticsRow[];
+  source: string;
+  warnings: string[];
+}
+
 export interface CustomerInvoiceSummary {
   invoice_number: string | null;
   invoice_date: string | null;
@@ -384,6 +401,86 @@ async function countRegisteredCustomers() {
     .select("id", { count: "exact", head: true });
   if (error) throw new Error(`customers: ${error.message}`);
   return count ?? 0;
+}
+
+function monthStart(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function addMonths(date: Date, months: number) {
+  return new Date(date.getFullYear(), date.getMonth() + months, 1);
+}
+
+function toDateOnly(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function monthLabel(date: Date) {
+  return date.toLocaleDateString("ar-EG", { month: "long", year: "numeric" });
+}
+
+async function safeCount(table: string, apply: (query: any) => any): Promise<{ count: number | null; warning?: string }> {
+  try {
+    const { count, error } = await apply(supabase.from(table).select("*", { count: "exact", head: true }));
+    if (error) return { count: null, warning: `${table}: ${error.message}` };
+    return { count: count ?? 0 };
+  } catch (error) {
+    return { count: null, warning: error instanceof Error ? `${table}: ${error.message}` : `${table}: تعذر العد` };
+  }
+}
+
+export async function getCustomerMonthlyAnalytics(months = 6): Promise<CustomerMonthlyAnalytics> {
+  if (!isSupabaseConfigured) {
+    throw new Error("إعدادات Supabase غير موجودة.");
+  }
+
+  const safeMonths = Math.min(Math.max(months, 3), 12);
+  const current = monthStart(new Date());
+  const starts = Array.from({ length: safeMonths }, (_, index) => addMonths(current, index - safeMonths + 1));
+  const warnings: string[] = [];
+
+  const rows = await Promise.all(starts.map(async (start) => {
+    const end = addMonths(start, 1);
+    const startIso = toDateOnly(start);
+    const endIso = toDateOnly(end);
+
+    const [
+      registered,
+      purchased,
+      veryImportant,
+      important,
+      medium,
+      normal,
+    ] = await Promise.all([
+      safeCount("customers", (query) => query.gte("created_at", startIso).lt("created_at", endIso)),
+      safeCount(SUMMARY_TABLE, (query) => query.gte("first_purchase", startIso).lt("first_purchase", endIso)),
+      safeCount(SUMMARY_TABLE, (query) => applySegmentFilter(query.gte("first_purchase", startIso).lt("first_purchase", endIso), "مهم جدًا")),
+      safeCount(SUMMARY_TABLE, (query) => applySegmentFilter(query.gte("first_purchase", startIso).lt("first_purchase", endIso), "مهم")),
+      safeCount(SUMMARY_TABLE, (query) => applySegmentFilter(query.gte("first_purchase", startIso).lt("first_purchase", endIso), "متوسط")),
+      safeCount(SUMMARY_TABLE, (query) => applySegmentFilter(query.gte("first_purchase", startIso).lt("first_purchase", endIso), "عادي")),
+    ]);
+
+    [registered, purchased, veryImportant, important, medium, normal].forEach((result) => {
+      if (result.warning) warnings.push(result.warning);
+    });
+
+    return {
+      month: startIso.slice(0, 7),
+      label: monthLabel(start),
+      registeredCustomers: registered.count,
+      purchasedCustomers: purchased.count,
+      veryImportant: veryImportant.count,
+      important: important.count,
+      medium: medium.count,
+      normal: normal.count,
+    };
+  }));
+
+  return {
+    rows,
+    source: "customers.created_at + customer_metrics_summary.first_purchase",
+    warnings: Array.from(new Set(warnings)).slice(0, 4),
+  };
 }
 
 export async function getCustomerStats(): Promise<CustomerStats> {
