@@ -28,6 +28,7 @@ import DoctorDashboard from "@/pages/DoctorDashboard";
 import StagnantMedicines from "@/pages/StagnantMedicines";
 import IncentiveMedicines from "@/pages/IncentiveMedicines";
 import StaffAccounts from "@/pages/StaffAccounts";
+import StaffDuplicateAudit from "@/pages/StaffDuplicateAudit";
 import PenaltyIncentiveManagement from "@/pages/PenaltyIncentiveManagement";
 import StaffDashboard from "@/pages/StaffDashboard";
 import RolesPermissions from "@/pages/RolesPermissions";
@@ -404,6 +405,16 @@ export default function App() {
             <ProtectedRoute>
               <AdminRoute>
                 <StaffAccounts />
+              </AdminRoute>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/staff-duplicate-audit"
+          element={
+            <ProtectedRoute>
+              <AdminRoute>
+                <StaffDuplicateAudit />
               </AdminRoute>
             </ProtectedRoute>
           }

@@ -109,7 +109,7 @@ export default function EvaluationRules2027() {
                         <span className={rule.type === "reward" ? "badge-success" : "badge-danger"}>{rule.type === "reward" ? "مكافأة" : "خصم"}</span>
                         <span className="badge-purple">{rule.points} نقطة</span>
                         <span className="badge-info">{rule.role}</span>
-                        {rule.repeatable && <span className="badge-warning">يتضاعف: {rule.points} ثم {repeatPenaltyPoints(rule.points, 1)} ثم {repeatPenaltyPoints(rule.points, 2)}</span>}
+                        {rule.repeatable && <span className="badge-warning">يتضاعف: {rule.points} ثم {rule.points * 2} ثم {rule.points * 3}</span>}
                       </div>
                     </div>
                     <button onClick={() => removeRule(rule.id)} className="rounded-xl p-2 text-slate-400 hover:bg-red-500/10 hover:text-red-300"><Trash2 className="h-4 w-4" /></button>
