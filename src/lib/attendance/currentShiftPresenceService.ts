@@ -64,6 +64,7 @@ function egyptNow() {
 }
 
 function todayName(): string {
+  // getDay(): الأحد = 0، والجدول العربي في constants بنفس الترتيب
   return DAYS_AR[egyptNow().getDay()] || "";
 }
 
@@ -151,8 +152,10 @@ async function safeSelect<T>(table: string, select: string, apply: (query: any) 
   }
 }
 
-const SHIFT_SELECT = "id,staff_id,staff_name,role,branch,day_name,shift_date,date,shift_name,start_time,end_time,shift_start,shift_end,is_off,status";
-const ATTENDANCE_SELECT = "staff_id,staff_name,date,attendance_date,check_in,check_out,first_in,last_out";
+const BASIC_SHIFT_SELECT = "id,staff_id,staff_name,role,branch,day_name,shift_start,shift_end,is_off";
+const DATED_SHIFT_SELECT = "id,staff_id,staff_name,role,branch,day_name,shift_date,date,shift_name,start_time,end_time,shift_start,shift_end,is_off,status";
+const BASIC_ATTENDANCE_SELECT = "staff_id,staff_name,check_in,check_out";
+const DATED_ATTENDANCE_SELECT = "staff_id,staff_name,date,attendance_date,check_in,check_out,first_in,last_out";
 
 export async function fetchCurrentShiftPresence(): Promise<CurrentShiftPresence> {
   const empty: CurrentShiftPresence = {
@@ -168,16 +171,19 @@ export async function fetchCurrentShiftPresence(): Promise<CurrentShiftPresence>
   const todayArabic = todayName();
   const todayStr = todayDate();
 
-  const byDate = await safeSelect<ShiftScheduleRow>(
-    "shift_schedules",
-    SHIFT_SELECT,
-    (query) => query.or(`shift_date.eq.${todayStr},date.eq.${todayStr}`).limit(1000),
-  );
-
+  // أغلب قاعدة بيانات الصيدلية الحالية لا تحتوي shift_date/date/start_time/end_time.
+  // لذلك نقرأ أعمدة الجدول الأسبوعي الأساسية أولًا حتى لا يفشل الاستعلام كله بسبب عمود غير موجود.
   const byDay = await safeSelect<ShiftScheduleRow>(
     "shift_schedules",
-    SHIFT_SELECT,
+    BASIC_SHIFT_SELECT,
     (query) => query.eq("day_name", todayArabic).limit(1000),
+  );
+
+  // دعم اختياري للجداول المستقبلية التي تحتوي تاريخ محدد لكل شيفت.
+  const byDate = await safeSelect<ShiftScheduleRow>(
+    "shift_schedules",
+    DATED_SHIFT_SELECT,
+    (query) => query.or(`shift_date.eq.${todayStr},date.eq.${todayStr}`).limit(1000),
   );
 
   const rawSchedules = [...byDate, ...byDay].filter((row) => {
@@ -205,11 +211,19 @@ export async function fetchCurrentShiftPresence(): Promise<CurrentShiftPresence>
 
   const schedules = [...scheduleMap.values()];
 
-  const attendanceRows = await safeSelect<AttendanceRow>(
+  const attendanceRowsByDate = await safeSelect<AttendanceRow>(
     "attendance",
-    ATTENDANCE_SELECT,
+    DATED_ATTENDANCE_SELECT,
     (query) => query.or(`date.eq.${todayStr},attendance_date.eq.${todayStr}`).limit(1000),
   );
+
+  const attendanceRows = attendanceRowsByDate.length
+    ? attendanceRowsByDate
+    : await safeSelect<AttendanceRow>(
+        "attendance",
+        BASIC_ATTENDANCE_SELECT,
+        (query) => query.limit(1000),
+      );
 
   const attendanceMap = new Map<string, AttendanceRow>();
   attendanceRows.forEach((row) => {

@@ -47,6 +47,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { canSeeAllBranches, effectiveBranchFilter } from "@/lib/security/permissionScopes";
 import { DAYS_AR } from "@/lib/constants";
 import { isCurrentlyOnShift } from "@/lib/utils";
+import { fetchCurrentShiftPresence } from "@/lib/attendance/currentShiftPresenceService";
 import { getStaffIncentiveSummaryForCycle, type StaffCycleIncentive } from "@/lib/staffIncentiveService";
 import {
   DASHBOARD_ALL_BRANCHES,
@@ -704,7 +705,7 @@ export default function ExecutiveDashboard2027() {
       noCacheRef.current = false;
 
       // ⚡ كل الـ requests في وقت واحد — parallel كامل
-      const [salesTruth, staffResult, scheduleResult] = await Promise.all([
+      const [salesTruth, staffResult, scheduleResult, currentPresence] = await Promise.all([
         fetchDashboardSalesTruth({
           startDate,
           endDate,
@@ -714,6 +715,7 @@ export default function ExecutiveDashboard2027() {
         }),
         supabase.from("staff").select("id,staff_id,name,staff_name,role,branch,status,active,is_active").limit(700),
         supabase.from("shift_schedules").select("staff_id,staff_name,branch,day_name,shift_start,shift_end,is_off").limit(1200),
+        fetchCurrentShiftPresence(),
       ]);
 
       const summary = salesTruth.summary;
@@ -749,7 +751,22 @@ export default function ExecutiveDashboard2027() {
         })
         .filter(Boolean) as ShiftNowRow[];
       const onShiftNow = scheduledToday.filter((member) => isCurrentlyOnShift(member.shift_start || "", member.shift_end || ""));
-      const effectiveOnShiftNow = onShiftNow.length ? onShiftNow : scheduledToday;
+      const presenceRows = [...currentPresence.doctors, ...currentPresence.assistants, ...currentPresence.delivery]
+        .filter((person) => scopedBranch === ALL_BRANCHES || branchName(person.branch) === scopedBranch)
+        .map((person) => ({
+          id: person.id,
+          staff_id: person.id,
+          name: person.name,
+          staff_name: person.name,
+          role: person.role,
+          branch: person.branch,
+          status: person.attendance_status,
+          active: true,
+          is_active: true,
+          shift_start: person.shift_start,
+          shift_end: person.shift_end,
+        })) as ShiftNowRow[];
+      const effectiveOnShiftNow = presenceRows.length ? presenceRows : (onShiftNow.length ? onShiftNow : scheduledToday);
       let incentiveSummary: StaffCycleIncentive[] = [];
       try {
         incentiveSummary = await getStaffIncentiveSummaryForCycle({
