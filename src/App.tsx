@@ -25,6 +25,7 @@ const CRMPage = lazy(() => import("@/pages/CRMPage"));
 const CustomerCashback = lazy(() => import("@/pages/CustomerCashback"));
 const CustomerServiceCredit = lazy(() => import("@/pages/CustomerServiceCredit"));
 const CustomerWelcome = lazy(() => import("@/pages/CustomerWelcome"));
+const CustomerCoding = lazy(() => import("@/pages/CustomerCoding"));
 const Team = lazy(() => import("@/pages/Team"));
 const Schedule = lazy(() => import("@/pages/Schedule"));
 const Points = lazy(() => import("@/pages/Points"));
@@ -76,6 +77,7 @@ const ROUTE_PERMISSIONS: Record<string, string> = {
   "/incubation": "page.incubation.view",
   "/customer-requests": "customer_service.section.daily_followups",
   "/customer-welcome": "customer_service.section.whatsapp_templates",
+  "/customer-coding": "page.customer_service.view",
   "/customer-cashback": "page.customer_cashback.view",
   "/customer-service-credit": "page.customer_cashback.view",
   "/reviews": "page.reviews.view",
@@ -347,6 +349,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <CustomerWelcome />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/customer-coding"
+          element={
+            <ProtectedRoute>
+              <CustomerCoding />
             </ProtectedRoute>
           }
         />

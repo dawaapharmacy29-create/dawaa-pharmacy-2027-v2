@@ -312,3 +312,6 @@ ALTER PUBLICATION supabase_realtime ADD TABLE
 6. `sales_invoices`
 7. `dawaa_staff_payroll_summary_v13` (View — آخراً بعد ما تتأكد من employee_transactions)
 8. تفعيل Realtime
+
+## Customer Coding V2
+شغّل ملف `CUSTOMER_CODING_SETUP.sql` في Supabase SQL Editor لتفعيل صفحة **تكويد العميل** وجداول الأصناف المميزة.

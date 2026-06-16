@@ -56,6 +56,8 @@ export interface GetCustomersOptions {
   branch?: string;
   type?: string;
   status?: string;
+  minTotal?: number;
+  maxTotal?: number;
 }
 
 export interface CustomerStats {
@@ -403,6 +405,12 @@ function applyListFilters<T>(query: T, options: GetCustomersOptions): T {
   query = applySegmentFilter(query, options.type);
   query = applyStatusFilter(query, options.status);
   query = applySearch(query, options.search);
+  if (typeof options.minTotal === "number" && Number.isFinite(options.minTotal)) {
+    query = (query as any).gte("total_spent", options.minTotal);
+  }
+  if (typeof options.maxTotal === "number" && Number.isFinite(options.maxTotal)) {
+    query = (query as any).lte("total_spent", options.maxTotal);
+  }
   return query;
 }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useEscapeKey } from "@/hooks/useEscapeKey";
 import {
   AlertTriangle,
@@ -121,11 +121,15 @@ function CustomerPhoneCell({ customer }: { customer: CustomerMetric }) {
 
 export default function Customers() {
   const { user } = useAuth();
+  const [urlParams] = useSearchParams();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [branchFilter, setBranchFilter] = useState(ALL_FILTER);
   const [segmentFilter, setSegmentFilter] = useState(ALL_FILTER);
   const [statusFilter, setStatusFilter] = useState(ALL_FILTER);
+  const [loyaltyFilter, setLoyaltyFilter] = useState(() => urlParams.get("loyalty") || "");
+  const [minPurchaseFilter, setMinPurchaseFilter] = useState(() => Number(urlParams.get("min_purchase") || "") || undefined);
+  const [maxPurchaseFilter, setMaxPurchaseFilter] = useState(() => Number(urlParams.get("max_purchase") || "") || undefined);
   const [page, setPage] = useState(1);
   const [customers, setCustomers] = useState<CustomerMetric[]>([]);
   const [stats, setStats] = useState<CustomerStats>(EMPTY_STATS);
@@ -147,7 +151,14 @@ export default function Customers() {
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, branchFilter, segmentFilter, statusFilter]);
+  }, [debouncedSearch, branchFilter, segmentFilter, statusFilter, minPurchaseFilter, maxPurchaseFilter]);
+
+  useEffect(() => {
+    const loyalty = urlParams.get("loyalty") || "";
+    setLoyaltyFilter(loyalty);
+    setMinPurchaseFilter(Number(urlParams.get("min_purchase") || "") || undefined);
+    setMaxPurchaseFilter(Number(urlParams.get("max_purchase") || "") || undefined);
+  }, [urlParams]);
 
   const loadStats = useCallback(async () => {
     setStatsLoading(true);
@@ -202,6 +213,8 @@ export default function Customers() {
         branch: branchFilter,
         type: segmentFilter,
         status: statusFilter,
+        minTotal: minPurchaseFilter,
+        maxTotal: maxPurchaseFilter,
         limit: PAGE_SIZE,
         offset: (page - 1) * PAGE_SIZE,
       });
@@ -230,7 +243,7 @@ export default function Customers() {
         setRefreshing(false);
       }
     }
-  }, [branchFilter, customers.length, debouncedSearch, page, segmentFilter, statusFilter]);
+  }, [branchFilter, customers.length, debouncedSearch, page, segmentFilter, statusFilter, minPurchaseFilter, maxPurchaseFilter]);
 
   useEffect(() => {
     loadStats();
@@ -420,6 +433,16 @@ export default function Customers() {
           />
         ))}
       </section>
+
+
+      {loyaltyFilter && (
+        <section className="rounded-2xl border border-teal-500/30 bg-teal-500/10 p-4 text-sm font-bold text-teal-100">
+          يتم الآن عرض عملاء مستوى <span className="font-black">{loyaltyFilter}</span>
+          {minPurchaseFilter ? <span> — من {formatCurrency(minPurchaseFilter)}</span> : null}
+          {maxPurchaseFilter ? <span> إلى {formatCurrency(maxPurchaseFilter)}</span> : null}
+          <button type="button" onClick={() => { setLoyaltyFilter(""); setMinPurchaseFilter(undefined); setMaxPurchaseFilter(undefined); window.history.replaceState(null, "", "/customers"); }} className="mr-3 rounded-xl border border-teal-300/40 px-3 py-1 text-xs font-black">إلغاء فلتر الولاء</button>
+        </section>
+      )}
 
       <section className="dawaa-panel">
         <div className="grid gap-3 lg:grid-cols-[1fr_180px_180px_190px]">

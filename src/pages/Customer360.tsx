@@ -25,6 +25,8 @@ import {
   ChevronDown,
   ChevronUp,
   Lightbulb,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import {
   AreaChart,
@@ -155,6 +157,9 @@ export default function Customer360() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"timeline" | "invoices" | "followups">("timeline");
+  const [specialItemName, setSpecialItemName] = useState("");
+  const [specialItemNotes, setSpecialItemNotes] = useState("");
+  const [specialItems, setSpecialItems] = useState<Array<{ id: string; name: string; notes: string; createdAt: string }>>([]);
   const abortRef = useRef<AbortController | null>(null);
 
   const load = useCallback(async (forceRefresh = false) => {
@@ -213,6 +218,30 @@ export default function Customer360() {
   // combine timeline invoices with latestInvoices
   const allInvoices = profile?.latestInvoices ?? [];
   const allFollowups = profile?.latestFollowups ?? [];
+
+  useEffect(() => {
+    const key = displayCode || displayPhone2 || customerId || customerName || "unknown";
+    try {
+      const raw = window.localStorage.getItem(`dawaa_customer_special_items_${key}`);
+      setSpecialItems(raw ? JSON.parse(raw) : []);
+    } catch {
+      setSpecialItems([]);
+    }
+  }, [displayCode, displayPhone2, customerId, customerName]);
+
+  function saveSpecialItems(next: Array<{ id: string; name: string; notes: string; createdAt: string }>) {
+    const key = displayCode || displayPhone2 || customerId || customerName || "unknown";
+    setSpecialItems(next);
+    window.localStorage.setItem(`dawaa_customer_special_items_${key}`, JSON.stringify(next));
+  }
+
+  function addSpecialItem() {
+    const name = specialItemName.trim();
+    if (!name) return;
+    saveSpecialItems([{ id: crypto.randomUUID(), name, notes: specialItemNotes.trim(), createdAt: new Date().toISOString() }, ...specialItems]);
+    setSpecialItemName("");
+    setSpecialItemNotes("");
+  }
 
   // ── loading & error states ──
   if (loading) {
@@ -541,6 +570,28 @@ export default function Customer360() {
             </div>
           </Section>
         )}
+
+        <Section title="أصناف وملاحظات مميزة للعميل" icon={<Star size={18} className="text-yellow-400" />} defaultOpen={false}>
+          <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+            <input value={specialItemName} onChange={(e) => setSpecialItemName(e.target.value)} placeholder="اسم الصنف المميز للعميل" className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-surface)] px-4 py-3 text-sm font-bold text-[var(--theme-heading)] outline-none" />
+            <input value={specialItemNotes} onChange={(e) => setSpecialItemNotes(e.target.value)} placeholder="سبب الأهمية أو ملاحظة" className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-surface)] px-4 py-3 text-sm font-bold text-[var(--theme-heading)] outline-none" />
+            <button type="button" onClick={addSpecialItem} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-teal-600 px-4 py-3 text-sm font-black text-white"><Plus size={16} /> إضافة</button>
+          </div>
+          <div className="mt-4 grid gap-2">
+            {specialItems.length === 0 && <div className="rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-surface)] p-4 text-center text-sm font-bold text-[var(--theme-muted)]">لا توجد أصناف مميزة مسجلة لهذا العميل بعد.</div>}
+            {specialItems.map((item) => (
+              <div key={item.id} className="flex items-start justify-between gap-3 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-surface)] p-4">
+                <div>
+                  <div className="font-black text-[var(--theme-heading)]">{item.name}</div>
+                  {item.notes && <div className="mt-1 text-sm text-[var(--theme-muted)]">{item.notes}</div>}
+                  <div className="mt-1 text-[11px] font-bold text-[var(--theme-muted)]">تمت الإضافة: {formatDateArabic(item.createdAt)}</div>
+                </div>
+                <button type="button" onClick={() => saveSpecialItems(specialItems.filter((x) => x.id !== item.id))} className="rounded-xl border border-red-500/30 p-2 text-red-300"><Trash2 size={15} /></button>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs font-bold text-amber-200">هذه النسخة تحفظ الأصناف المميزة محليًا لحين تشغيل جدول customer_special_items في Supabase. يمكن ترحيلها لاحقًا لقاعدة البيانات.</div>
+        </Section>
 
         {/* ── recommendations ── */}
         {(profile?.recommendations ?? []).length > 0 && (
