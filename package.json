@@ -108,6 +108,7 @@
     "xlsx": "^0.18.5"
   },
   "engines": {
-    "node": "24.x"
-  }
+    "node": "22.x"
+  },
+  "packageManager": "pnpm@9.15.9"
 }
