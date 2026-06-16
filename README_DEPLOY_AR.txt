@@ -1,27 +1,30 @@
-نسخة Dawaa Pharmacy 2027 جاهزة للنشر على Vercel
+نسخة Dawaa Pharmacy 2027 - Stable Vercel Edition
 
-التعديلات المطبقة:
-1) تم ضبط Node.js على 22.x لأنه أكثر استقرارًا من Node 24 مع npm/pnpm ومناسب للمكتبات التي تحتاج >=22.
-2) تم ضبط Vercel لاستخدام pnpm@9.15.9 بدل npm لتجنب خطأ npm: Exit handler never called.
-3) تم الحفاظ على Vite build و outputDirectory=dist.
-4) تم الحفاظ على rewrites حتى تعمل روابط React Router بعد الرفع.
-5) تم الحفاظ على cache headers للأصول داخل /assets.
+هذه النسخة مجهزة للنشر على Vercel داخل نفس الريبو أو ريبو جديد.
 
-طريقة الاستخدام:
-- فك الضغط.
-- انسخ الملفات فوق مشروعك أو ارفعها كمستودع GitHub جديد.
-- في Vercel اعمل Import للمشروع.
-- اعمل Redeploy without cache.
+الإعدادات المهمة:
+- Node.js: 22.x
+- Package Manager: pnpm@9.15.9
+- Framework: Vite
+- Build Command: pnpm run build
+- Output Directory: dist
 
-أوامر Vercel المتوقعة:
-Install Command:
-corepack enable && corepack prepare pnpm@9.15.9 --activate && pnpm install --no-frozen-lockfile
+خطوات الرفع على نفس الريبو:
+1) خذ نسخة احتياطية أو اعمل Branch جديد.
+2) انسخ محتويات هذه النسخة فوق المشروع الحالي.
+3) ارفع التعديلات إلى GitHub.
+4) في Vercel اضبط Node.js Version على 22.x.
+5) اعمل Redeploy without cache.
 
-Build Command:
-pnpm run build
+ملاحظات:
+- تم حذف package-lock.json لتجنب تعارض npm مع pnpm.
+- يوجد ملف .nvmrc لتثبيت Node 22.
+- يوجد ملف .npmrc لتخفيف مشاكل peer dependencies.
+- يوجد script doctor لفحص إعدادات النشر:
+  pnpm run doctor
 
-Output Directory:
-dist
+في حالة ظهور مشكلة في Supabase، راجع متغيرات البيئة:
+- VITE_SUPABASE_URL
+- VITE_SUPABASE_ANON_KEY
 
-ملاحظة مهمة:
-لا تستخدم Node 20 لأنه سبب مشكلة camera-controls، ولا Node 24 لأنه سبب مشاكل ERR_INVALID_THIS/Exit handler في أدوات التثبيت.
+لا تشغل ملفات SQL على قاعدة البيانات إلا بعد مراجعتها.
