@@ -352,8 +352,31 @@ export default function CustomerIncubation() {
         .order("branch_rank", { ascending: true })
         .limit(200);
 
-      if (error) throw error;
-      const nextRows = (data || []) as CandidateRow[];
+      let nextRows = (data || []) as CandidateRow[];
+      if (error || nextRows.length === 0) {
+        const fallback = await supabase
+          .from("customers")
+          .select("id,customer_code,code,name,customer_name,phone,customer_phone,branch,total_purchases,total_spent,total_invoices,invoices_count,avg_invoice,avg_monthly,last_purchase,last_invoice_date,first_purchase,type,retention_status,status")
+          .order("total_purchases", { ascending: false, nullsFirst: false })
+          .limit(300);
+        if (!fallback.error) {
+          nextRows = ((fallback.data || []) as any[]).map((row, index) => ({
+            ...row,
+            customer_name: row.customer_name || row.name,
+            customer_phone: row.customer_phone || row.phone,
+            customer_code: row.customer_code || row.code,
+            total_spent: row.total_spent ?? row.total_purchases,
+            total_invoice_count: row.total_invoice_count ?? row.total_invoices ?? row.invoices_count,
+            last_purchase: row.last_purchase || row.last_invoice_date,
+            branch_rank: index + 1,
+            recommended_for_incubation: Number(row.total_spent ?? row.total_purchases ?? 0) >= 1500,
+            incubation_recommendation: "ترشيح تلقائي من إجمالي مشتريات العميل",
+            incubation_priority: Number(row.total_spent ?? row.total_purchases ?? 0) >= 8000 ? "vip" : "normal",
+          }));
+        } else if (error) {
+          throw error;
+        }
+      }
       setRows(nextRows);
       setSelected((current) => current ? nextRows.find((row) => rowKey(row) === rowKey(current)) || nextRows[0] || null : nextRows[0] || null);
     } catch (error) {

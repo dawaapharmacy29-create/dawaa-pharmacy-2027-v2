@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "packageManager": "yarn@1.22.22",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -107,9 +106,11 @@
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "react-router-dom": "^7.17.0",
+    "vitest": "^4.1.8",
     "xlsx": "^0.18.5"
   },
   "engines": {
     "node": "22.x"
-  }
+  },
+  "packageManager": "pnpm@9.15.9"
 }

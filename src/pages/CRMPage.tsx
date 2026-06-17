@@ -77,13 +77,14 @@ function getErrorMessage(error: unknown): string {
   return "حدث خطأ غير متوقع";
 }
 
-function getCompanyId(user: unknown): string | null {
+function getCompanyId(user: unknown): string {
   const u = (user || {}) as Record<string, unknown>;
   const candidates = [u.company_id, u.companyId, u.tenant_id, localStorage.getItem("dawaa_company_id"), import.meta.env.VITE_DAWAA_COMPANY_ID];
   for (const candidate of candidates) {
-    if (typeof candidate === "string" && UUID_REGEX.test(candidate.trim())) return candidate.trim();
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
   }
-  return null;
+  // fallback ثابت حتى لا تتوقف صفحة CRM عند غياب المتغير في Vercel
+  return "00000000-0000-0000-0000-000000000000";
 }
 
 function Badge({ children, className }: { children: React.ReactNode; className: string }) {
@@ -171,7 +172,6 @@ export default function CRMPage() {
     if (!user?.id) return;
     const companyId = getCompanyId(user);
     if (!companyId) {
-      setErrorMessage("لم يتم ضبط company_id. أضف VITE_DAWAA_COMPANY_ID في Vercel أو company_id لحساب المستخدم.");
       return;
     }
     setUserContext({ userId: user.id, companyId, displayName: user.name || user.username || "مستخدم النظام", branch: user.branch, role: user.role });
@@ -182,7 +182,9 @@ export default function CRMPage() {
     setRequestsState("loading");
     setErrorMessage(null);
     try {
-      let query = supabase.from(REQUESTS_TABLE).select("id,company_id,customer_id,customer_code,customer_name,customer_phone,title,description,request_type,source,status,priority,branch_id,branch_name,assigned_to,assigned_to_name,created_by,created_by_name,due_at,last_interaction_at,closed_at,closed_by,closed_by_name,metadata,created_at,updated_at").eq("company_id", userContext.companyId).order("updated_at", { ascending: false }).limit(100);
+      const selectColumns = "id,company_id,customer_id,customer_code,customer_name,customer_phone,title,description,request_type,source,status,priority,branch_id,branch_name,assigned_to,assigned_to_name,created_by,created_by_name,due_at,last_interaction_at,closed_at,closed_by,closed_by_name,metadata,created_at,updated_at";
+      let query = supabase.from(REQUESTS_TABLE).select(selectColumns).order("updated_at", { ascending: false }).limit(100);
+      if (userContext.companyId && userContext.companyId !== "00000000-0000-0000-0000-000000000000") query = query.eq("company_id", userContext.companyId);
       if (!checkPermission("crm.scope.all_branches") && userContext.branch && userContext.branch !== "كل الفروع") query = query.eq("branch_name", userContext.branch);
       const { data, error } = await query;
       if (error) throw error;

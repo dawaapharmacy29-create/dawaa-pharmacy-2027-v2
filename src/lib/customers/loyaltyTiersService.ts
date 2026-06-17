@@ -174,6 +174,16 @@ export async function fetchLoyaltyTiers(): Promise<LoyaltyTiersResult> {
     );
   } catch (error) {
     warnings.push(`customers: ${error instanceof Error ? error.message : "تعذر تحميل العملاء"}`);
+    try {
+      rawCustomers = await fetchAll<RawCustomer>(
+        "customer_analysis",
+        "id,customer_id,customer_code,code,customer_name,name,customer_phone,phone,branch,total_purchases,total_spent,avg_monthly,total_invoices,invoices_count,avg_invoice,last_purchase,last_invoice_date,first_purchase,segment,type,customer_status,status",
+        "total_spent",
+      );
+      source = "customer_analysis";
+    } catch (fallbackError) {
+      warnings.push(`customer_analysis: ${fallbackError instanceof Error ? fallbackError.message : "تعذر تحميل تحليل العملاء"}`);
+    }
   }
 
   let customers = rawCustomers.map(toLoyaltyCustomer).filter(Boolean) as LoyaltyCustomer[];
