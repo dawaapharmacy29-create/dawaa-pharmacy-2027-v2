@@ -2,7 +2,7 @@
  * approverRoles.ts — Approver role definitions
  * Uses the central permission system for role normalization.
  */
-import { normalizeRole, isPrivilegedRole, type RoleKey } from "@/lib/core/permissionSystem";
+import { normalizeRole, isPrivilegedRole, getRoleLabel, type RoleKey } from "@/lib/core/permissionSystem";
 
 export const APPROVER_ROLES: RoleKey[] = [
   "general_manager",
@@ -34,4 +34,14 @@ export function userCanApprove(allowedRoles?: Array<string | null> | string | nu
 
   const roles = Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles];
   return roles.map((role) => normalizeRole(role)).includes(normalizedUserRole);
+}
+
+export function formatApproverList(roles?: Array<string | null> | string | null): string {
+  if (!roles || (Array.isArray(roles) && roles.length === 0)) return "أي مدير معتمد";
+  const list = Array.isArray(roles) ? roles : [roles];
+  const labels = list
+    .filter(Boolean)
+    .map((role) => getRoleLabel(normalizeRole(role)))
+    .filter(Boolean);
+  return labels.length ? labels.join("، ") : "أي مدير معتمد";
 }
