@@ -20,14 +20,14 @@ if (pkg.engines?.node !== '22.x') {
   console.error('package.json engines.node must be 22.x');
   ok = false;
 }
-if (pkg.packageManager !== 'pnpm@9.15.9') {
-  console.error('package.json packageManager must be pnpm@9.15.9');
+if (pkg.packageManager !== 'yarn@1.22.22') {
+  console.error('package.json packageManager must be yarn@1.22.22');
   ok = false;
 }
 
 const vercel = JSON.parse(fs.readFileSync('vercel.json', 'utf8'));
-if (!String(vercel.installCommand || '').includes('pnpm@9.15.9')) {
-  console.error('vercel.json must install with pnpm@9.15.9');
+if (!String(vercel.installCommand || '').includes('yarn@1.22.22')) {
+  console.error('vercel.json must install with yarn@1.22.22');
   ok = false;
 }
 if (vercel.outputDirectory !== 'dist') {

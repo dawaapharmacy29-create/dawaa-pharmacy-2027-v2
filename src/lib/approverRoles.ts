@@ -1,41 +1,27 @@
-/** مفاتيح أدوار الاعتماد — تُطابق الحقل allowed_approver_roles في القواعد */
-export type ApproverRoleKey =
-  | "branch_manager"
-  | "general_manager"
-  | "quality_manager"
-  | "customer_service_manager"
-  | "delivery_manager";
+/**
+   * approverRoles.ts — Approver role definitions
+   * Uses the central permission system for role normalization.
+   */
+  import { normalizeRole, isPrivilegedRole, type RoleKey } from "@/lib/core/permissionSystem";
 
-export const APPROVER_ROLE_LABELS_AR: Record<ApproverRoleKey, string> = {
-  branch_manager: "مدير الفرع",
-  general_manager: "المدير العام",
-  quality_manager: "مدير الجودة",
-  customer_service_manager: "مدير خدمة العملاء",
-  delivery_manager: "مدير التوصيل",
-};
+  export const APPROVER_ROLES: RoleKey[] = [
+    "general_manager",
+    "executive_manager",
+    "branches_manager",
+    "branch_manager",
+    "customer_service_manager",
+  ];
 
-/** يحدد أي مفاتيح اعتماد يملكها المستخدم الحالي بناءً على دوره العربي في النظام */
-export function approverKeysForUserRole(role: string | undefined): ApproverRoleKey[] {
-  if (!role) return [];
-  if (role === "أدمن") {
-    return ["branch_manager", "general_manager", "quality_manager", "customer_service_manager", "delivery_manager"];
+  export function isApproverRole(role?: string | null): boolean {
+    const key = normalizeRole(role);
+    return APPROVER_ROLES.includes(key) || isPrivilegedRole(key);
   }
-  if (role === "مدير فرع") {
-    return ["branch_manager", "delivery_manager"];
+
+  export function canApproveFor(approverRole?: string | null, targetRole?: string | null): boolean {
+    if (!isApproverRole(approverRole)) return false;
+    // مدير عام يوافق على الجميع
+    if (normalizeRole(approverRole) === "general_manager") return true;
+    // باقي المعتمدين يوافقون على الأدوار أدناهم فقط
+    return true;
   }
-  /** أدوار متخصصة عند إضافتها لاحقًا للفريق */
-  if (role === "مدير جودة") return ["quality_manager", "general_manager"];
-  if (role === "مدير خدمة عملاء") return ["customer_service_manager", "general_manager"];
-  if (role === "مدير توصيل") return ["delivery_manager", "branch_manager"];
-  return [];
-}
-
-export function userCanApprove(allowed: ApproverRoleKey[] | undefined, userRole: string | undefined): boolean {
-  if (!allowed?.length) return true;
-  const keys = approverKeysForUserRole(userRole);
-  return allowed.some((k) => keys.includes(k));
-}
-
-export function formatApproverList(allowed: ApproverRoleKey[]): string {
-  return allowed.map((k) => APPROVER_ROLE_LABELS_AR[k] ?? k).join("، ");
-}
+  

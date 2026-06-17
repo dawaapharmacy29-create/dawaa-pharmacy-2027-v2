@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+  import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Component, lazy, Suspense, type ReactNode } from "react";
 import { Toaster } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
@@ -6,7 +7,19 @@ import Layout from "@/components/layout/Layout";
 import { LOGO_URL } from "@/lib/constants";
 import PWABanner from "@/components/features/PWABanner";
 
-const Login = lazy(() => import("@/pages/Login"));
+// Global React Query client — shared cache across all pages (5 min stale, 30 min gc)
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 5 * 60 * 1000,   // 5 min — don't refetch if data is fresh
+        gcTime: 30 * 60 * 1000,     // 30 min — keep in memory even when unused
+        retry: 2,                    // retry failed requests twice
+        refetchOnWindowFocus: false, // don't refetch just because user switches tabs
+      },
+    },
+  });
+
+  const Login = lazy(() => import("@/pages/Login"));
 const ExecutiveDashboard2027 = lazy(() => import("@/pages/ExecutiveDashboard2027"));
 const BranchComparison = lazy(() => import("@/pages/BranchComparison"));
 const BranchInspection = lazy(() => import("@/pages/BranchInspection"));
@@ -200,6 +213,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: bo
 
 export default function App() {
   return (
+    <QueryClientProvider client={queryClient}>
     <BrowserRouter>
       <AppErrorBoundary>
         <Toaster

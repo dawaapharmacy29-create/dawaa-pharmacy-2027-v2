@@ -11,7 +11,7 @@ interface QueryOptions {
   filters?: Array<{ column: string; operator: string; value: unknown }>;
   orderBy?: { column: string; ascending?: boolean };
   limit?: number;
-  realtimeEnabled?: boolean;
+  realtimeEnabled?: boolean; // default: false — enable only where live updates are truly needed
 }
 
 type QueryBuilder = ReturnType<ReturnType<typeof supabase.from>["select"]>;
@@ -112,7 +112,7 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
     mountedRef.current = true;
     fetchData();
 
-    if (isSupabaseConfigured && options.realtimeEnabled !== false) {
+    if (isSupabaseConfigured && options.realtimeEnabled === true) {
       channelRef.current = supabase
         .channel(`realtime:${options.table}:${Math.random()}`)
         .on(
