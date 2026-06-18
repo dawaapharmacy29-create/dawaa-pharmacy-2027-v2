@@ -44,7 +44,7 @@ import { supabase } from "@/lib/supabase";
 import { formatCycleDate, getCurrentCycle, getPreviousCycle } from "@/lib/pharmacy-cycle";
 import { normalizeBranchName } from "@/lib/branch";
 import { useAuth } from "@/hooks/useAuth";
-import DailySalesChart from "@/components/dashboard/DailySalesChart";
+import DailySalesChart, { type DailyChartMetric, type DailyChartRow } from "@/components/dashboard/DailySalesChart";
 import MonthlySalesChart from "@/components/dashboard/MonthlySalesChart";
 import { canSeeAllBranches, effectiveBranchFilter } from "@/lib/security/permissionScopes";
 import { DAYS_AR } from "@/lib/constants";
@@ -656,6 +656,7 @@ export default function ExecutiveDashboard2027() {
   const [endDate, setEndDate] = useState(() => formatCycleDate(currentCycle.end));
   const [branch, setBranch] = useState(() => effectiveBranchFilter(user, ALL_BRANCHES, ALL_BRANCHES) || ALL_BRANCHES);
   const [search, setSearch] = useState("");
+  const [dailyChartMetric, setDailyChartMetric] = useState<DailyChartMetric>("sales");
   const [loading, setLoading] = useState(false);
   const loadIdRef = useRef(0);
   const noCacheRef = useRef(false);
@@ -835,14 +836,43 @@ export default function ExecutiveDashboard2027() {
   }, [endDate, scopedBranch, startDate]);
 
   const dailyChart = useMemo(() => {
-    const map = new Map<string, Record<string, unknown>>();
+    const map = new Map<string, DailyChartRow & { date: string }>();
     state.dailySales.forEach((row) => {
       const day = String(row.sale_date || "").slice(0, 10);
       if (!day) return;
       const branch = branchName(row.branch);
-      const current = map.get(day) || { date: day, label: safeDate(day), total: 0 };
-      current.total = n(current.total) + n(row.daily_sales);
-      current[branch] = n(current[branch]) + n(row.daily_sales);
+      const current = map.get(day) || {
+        date: day,
+        label: safeDate(day),
+        totalSales: 0,
+        totalInvoices: 0,
+        totalAverage: 0,
+        shokrySales: 0,
+        shokryInvoices: 0,
+        shokryAverage: 0,
+        shamySales: 0,
+        shamyInvoices: 0,
+        shamyAverage: 0,
+      };
+      const sales = n(row.daily_sales);
+      const invoices = n(row.invoices_count);
+      current.totalSales = n(current.totalSales) + sales;
+      current.totalInvoices = n(current.totalInvoices) + invoices;
+      current.totalAverage = n(current.totalInvoices) ? n(current.totalSales) / n(current.totalInvoices) : 0;
+
+      const normalizedBranch = normalizeBranchName(branch);
+      const isShokry = normalizedBranch.includes("شكري");
+      const isShamy = normalizedBranch.includes("الشامي");
+      if (isShokry) {
+        current.shokrySales = n(current.shokrySales) + sales;
+        current.shokryInvoices = n(current.shokryInvoices) + invoices;
+        current.shokryAverage = n(current.shokryInvoices) ? n(current.shokrySales) / n(current.shokryInvoices) : 0;
+      }
+      if (isShamy) {
+        current.shamySales = n(current.shamySales) + sales;
+        current.shamyInvoices = n(current.shamyInvoices) + invoices;
+        current.shamyAverage = n(current.shamyInvoices) ? n(current.shamySales) / n(current.shamyInvoices) : 0;
+      }
       map.set(day, current);
     });
     return [...map.values()].sort((a, b) => String(a.date).localeCompare(String(b.date)));
@@ -1155,11 +1185,29 @@ export default function ExecutiveDashboard2027() {
         )}
 
         <Panel className="p-5">
-          <SectionTitle title="اتجاه المبيعات اليومية خلال الدورة" subtitle="رسم كامل بعرض الصفحة لمتابعة كل أيام الشهر" icon={<TrendingUp className="h-5 w-5" />} />
+          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <SectionTitle title="أداء الفروع اليومي خلال الدورة" subtitle="إجمالي اليوم مقارنة بفرع شكري وفرع الشامي لكل يوم" icon={<TrendingUp className="h-5 w-5" />} />
+            <div className="flex flex-wrap gap-2 rounded-2xl border border-cyan-300/10 bg-slate-950/45 p-1.5">
+              {([
+                ["sales", "المبيعات"],
+                ["average", "متوسط الفاتورة"],
+                ["invoices", "عدد الفواتير"],
+              ] as Array<[DailyChartMetric, string]>).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setDailyChartMetric(value)}
+                  className={`rounded-xl px-4 py-2 text-xs font-black transition ${dailyChartMetric === value ? "bg-cyan-500/20 text-cyan-100 ring-1 ring-cyan-300/30" : "text-slate-400 hover:bg-slate-800 hover:text-white"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
             <div className="h-[360px]">
               {dailyChart.length ? (
                 <Suspense fallback={<div className="flex h-full items-center justify-center text-slate-400">جارٍ تحميل الرسم...</div>}>
-                  <DailySalesChart data={dailyChart} />
+                  <DailySalesChart data={dailyChart} metric={dailyChartMetric} />
                 </Suspense>
               ) : <EmptyState label="لا توجد بيانات مبيعات يومية بعد" />}
             </div>
