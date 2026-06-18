@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { ROLES } from '@/lib/core/permissionSystem';
-import { getPermissionScopeForRole, getVisibleSectionsForPath } from '@/lib/permissionMatrix';
+import { getRoleDefinition, ROLES } from '@/lib/core/permissionSystem';
+import { getVisibleSectionsForPath } from '@/lib/permissionMatrix';
 
 interface PermissionGateProps {
   permission?: string;
@@ -11,12 +11,6 @@ interface PermissionGateProps {
   children: ReactNode;
 }
 
-/**
- * يُخفي المحتوى إذا لم يكن المستخدم يملك الصلاحيات المطلوبة.
- * - permission: صلاحية واحدة مطلوبة
- * - anyOf: يكفي أي صلاحية من القائمة
- * - allOf: كل الصلاحيات مطلوبة
- */
 export function PermissionGate({
   permission,
   anyOf,
@@ -32,16 +26,9 @@ export function PermissionGate({
   return allowed ? <>{children}</> : <>{fallback}</>;
 }
 
-export function SectionDenied({
-  message = 'هذا الجزء غير متاح لهذا الحساب.',
-}: {
-  message?: string;
-}) {
+export function SectionDenied({ message = 'هذا الجزء غير متاح لهذا الحساب.' }: { message?: string }) {
   return (
-    <div
-      className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100"
-      dir="rtl"
-    >
+    <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100" dir="rtl">
       {message}
     </div>
   );
@@ -49,10 +36,10 @@ export function SectionDenied({
 
 export function PermissionScopeBadge() {
   const { user } = useAuth();
-  const scope = getPermissionScopeForRole(user?.role);
+  const roleDef = getRoleDefinition(user?.role);
   return (
     <span className="inline-flex items-center rounded-full border border-teal-500/20 bg-teal-500/10 px-2.5 py-1 text-xs font-semibold text-teal-100">
-      نطاق البيانات: {scope.description}
+      نطاق البيانات: {roleDef.description}
     </span>
   );
 }
@@ -81,10 +68,7 @@ export function PageSectionsPreview({ path }: { path: string }) {
       </div>
       <div className="flex flex-wrap gap-2">
         {sections.map((section) => (
-          <span
-            key={section.key}
-            className="rounded-full bg-teal-500/10 px-3 py-1 text-xs font-semibold text-teal-100"
-          >
+          <span key={section.key} className="rounded-full bg-teal-500/10 px-3 py-1 text-xs font-semibold text-teal-100">
             {section.label}
           </span>
         ))}
