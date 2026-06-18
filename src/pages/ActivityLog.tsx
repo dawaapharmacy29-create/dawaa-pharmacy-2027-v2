@@ -80,19 +80,20 @@ export default function ActivityLog() {
     }
 
     setLoading(true);
-    let table: "activity_log" | "activity_logs" = "activity_logs";
+    let table: "activity_log" | "activity_logs" = "activity_log";
 
-    const primary = await supabase.from("activity_logs").select("*").order("created_at", { ascending: false }).limit(500);
-    if (!primary.error && (primary.data?.length ?? 0) > 0) {
+    // activity_log is the canonical table used by every new write. Only fall
+    // back to the legacy plural table when the canonical table is unavailable,
+    // not merely when it is empty (an empty current log is still authoritative).
+    const primary = await supabase.from("activity_log").select("*").order("created_at", { ascending: false }).limit(500);
+    if (!primary.error) {
       setLogs((primary.data || []) as ActivityLogEntry[]);
-      table = "activity_logs";
+      table = "activity_log";
     } else {
-      const secondary = await supabase.from("activity_log").select("*").order("created_at", { ascending: false }).limit(500);
-      if (!secondary.error && (secondary.data?.length ?? 0) > 0) {
+      const secondary = await supabase.from("activity_logs").select("*").order("created_at", { ascending: false }).limit(500);
+      if (!secondary.error) {
         setLogs((secondary.data || []) as ActivityLogEntry[]);
-        table = "activity_log";
-      } else if (!primary.error) {
-        setLogs((primary.data || []) as ActivityLogEntry[]);
+        table = "activity_logs";
       } else {
         setLogs([]);
       }
@@ -381,5 +382,4 @@ export default function ActivityLog() {
     </div>
   );
 }
-
 

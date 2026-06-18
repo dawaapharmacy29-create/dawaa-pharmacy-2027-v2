@@ -408,7 +408,7 @@ export default function StagnantMedicines() {
     realtimeEnabled: false,
   });
   const { data: activityLogs } = useSupabaseQuery<ActivityLogRecord>({
-    table: "activity_logs",
+    table: "activity_log",
     orderBy: { column: "created_at", ascending: false },
     limit: 500,
     realtimeEnabled: true,

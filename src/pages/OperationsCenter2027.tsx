@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useSupabaseQuery, supabaseInsert, supabaseUpdate } from "@/hooks/useSupabaseQuery";
 import { useAuth } from "@/hooks/useAuth";
 import { currentCycleText, pickFirst } from "@/lib/dawaa2027";
+import { logActivity } from "@/lib/activityLog";
 import {
   dismissNotification,
   escalateNotification,
@@ -81,6 +82,25 @@ export default function OperationsCenter2027() {
     });
     if (error) return toast.error(error);
 
+    await logActivity({
+      action: "task_created",
+      module: "المهام اليومية",
+      target_type: "task",
+      target_id: String(data?.id || ""),
+      user_id: user?.id,
+      user_name: user?.name,
+      user_role: user?.role,
+      branch_name: user?.branch,
+      route_path: "/operations-center",
+      details: {
+        title: form.title.trim(),
+        type: form.type,
+        priority: form.priority,
+        assigned_to_name: form.assigned_to_name,
+        due_date: form.due_date,
+      },
+    }).catch(() => undefined);
+
     await notifyEmployee({
       title: "مهمة جديدة",
       message: `تم إسناد مهمة: ${form.title.trim()}${form.assigned_to_name ? ` إلى ${form.assigned_to_name}` : ""}`,
@@ -102,8 +122,23 @@ export default function OperationsCenter2027() {
   };
 
   const closeTask = async (id: string) => {
+    const task = normalizedTasks.find((item) => item.id === id);
     const { error } = await supabaseUpdate("tasks", id, { status: "completed", completed_at: new Date().toISOString() } as Record<string, unknown>);
     if (error) return toast.error(error);
+    await logActivity({
+      action: "task_completed",
+      module: "المهام اليومية",
+      target_type: "task",
+      target_id: id,
+      user_id: user?.id,
+      user_name: user?.name,
+      user_role: user?.role,
+      branch_name: user?.branch,
+      route_path: "/operations-center",
+      old_value: { status: task?.status || "open" },
+      new_value: { status: "completed" },
+      details: { title: task?.title || "مهمة", assigned_to_name: task?.assigned_to_name },
+    }).catch(() => undefined);
     toast.success("تم إغلاق المهمة");
     refetchTasks();
   };
@@ -155,7 +190,7 @@ export default function OperationsCenter2027() {
             <h2 className="text-lg font-black text-slate-950">مركز التنبيهات</h2>
             <p className="text-sm font-semibold text-slate-500">فلترة وتنفيذ ومراجعة التنبيهات بدون تحميل كامل الجدول.</p>
           </div>
-          <div className="grid gap-2 md:grid-cols-5">
+          <div className="grid gap-2 md:grid-cols-6">
             <div className="relative md:col-span-2">
               <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input className="dawaa-input w-full pr-10" placeholder="بحث في التنبيهات" value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} />
@@ -163,6 +198,7 @@ export default function OperationsCenter2027() {
             <Filter value={filters.type} onChange={(value) => setFilters({ ...filters, type: value })} options={[ALL, ...unique(notifications.map((n) => String(n.type || "")))]} allLabel="كل الأنواع" />
             <Filter value={filters.priority} onChange={(value) => setFilters({ ...filters, priority: value })} options={[ALL, ...unique(notifications.map((n) => String(n.priority || "")))]} allLabel="كل الأولويات" />
             <Filter value={filters.status} onChange={(value) => setFilters({ ...filters, status: value })} options={[ALL, "new", "read", "completed", "dismissed", "escalated"]} allLabel="كل الحالات" />
+            <Filter value={filters.branch} onChange={(value) => setFilters({ ...filters, branch: value })} options={[ALL, ...unique(notifications.map((n) => String(n.branch || "")))]} allLabel="كل الفروع" />
           </div>
         </div>
 
