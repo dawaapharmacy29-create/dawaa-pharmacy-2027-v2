@@ -34,7 +34,7 @@ export default function StaffPayroll() {
     setError(null);
     try {
       const { data, error } = await supabase
-        .from('dawaa_staff_payroll_summary_v13')
+        .from('staff_payroll_summary')
         .select('*')
         .order('staff_name')
         .limit(300);

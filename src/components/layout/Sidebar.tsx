@@ -221,6 +221,12 @@ const GROUPS: NavGroup[] = [
         label: 'مقارنة الفروع',
         permission: 'view_analytics_sales',
       },
+      {
+        path: '/reports',
+        icon: FileSpreadsheet,
+        label: 'مركز التقارير',
+        permission: 'view_analytics',
+      },
     ],
   },
   {
@@ -252,6 +258,18 @@ const GROUPS: NavGroup[] = [
         icon: ClipboardList,
         label: 'الجرد',
         permission: 'view_dashboard',
+      },
+      {
+        path: '/stock-alerts',
+        icon: AlertTriangle,
+        label: 'تنبيهات المخزون',
+        permission: 'view_stagnant_medicines',
+      },
+      {
+        path: '/returns',
+        icon: Trash2,
+        label: 'إدارة المرتجعات',
+        permission: 'view_invoices',
       },
     ],
   },

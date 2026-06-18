@@ -82,6 +82,9 @@ const CustomerHealthProfile = lazy(() => import('@/pages/CustomerHealthProfile')
 const ExpiryDiscounts = lazy(() => import('@/pages/ExpiryDiscounts'));
 const EmployeeKpi = lazy(() => import('@/pages/EmployeeKpi'));
 const SupplierPerformance = lazy(() => import('@/pages/SupplierPerformance'));
+const ReportsCenter = lazy(() => import('@/pages/ReportsCenter'));
+const StockAlerts = lazy(() => import('@/pages/StockAlerts'));
+const Returns = lazy(() => import('@/pages/Returns'));
 
 const ROUTE_PERMISSIONS: Record<string, string> = {
   '/': 'page.dashboard.view',
@@ -130,6 +133,9 @@ const ROUTE_PERMISSIONS: Record<string, string> = {
   '/expiry-discounts': 'page.stagnant_medicines.view',
   '/employee-kpi': 'page.team.view',
   '/supplier-performance': 'page.analytics.view',
+  '/reports': 'page.analytics.view',
+  '/stock-alerts': 'page.stagnant_medicines.view',
+  '/returns': 'page.invoices.view',
 };
 
 function AppLoading() {
@@ -386,6 +392,9 @@ export default function App() {
                 path="/supplier-performance"
                 element={protectedElement(<SupplierPerformance />)}
               />
+              <Route path="/reports" element={protectedElement(<ReportsCenter />)} />
+              <Route path="/stock-alerts" element={protectedElement(<StockAlerts />)} />
+              <Route path="/returns" element={protectedElement(<Returns />)} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>

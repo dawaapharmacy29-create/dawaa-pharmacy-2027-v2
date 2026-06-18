@@ -1,181 +1,185 @@
-import { useEffect, useState } from 'react';
+import { useAuth } from '@/hooks/useAuth';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
   ClipboardList,
   Headphones,
   PackageSearch,
+  RefreshCw,
   Star,
   Truck,
   Users,
 } from 'lucide-react';
-import {
-  fetchCurrentShiftPresence,
-  type CurrentShiftPresence,
-} from '@/lib/attendance/currentShiftPresenceService';
-import { safeRows, isOpenStatus, rowDate, safeText } from '@/lib/safeSupabase';
+import { supabase } from '@/lib/supabase';
 import { CommandHeader, MetricCard, SectionState } from '@/components/command/CommandUI';
 
-type Row = Record<string, unknown>;
-type BriefData = {
-  presence: CurrentShiftPresence;
-  followups: Row[];
-  complaints: Row[];
-  orders: Row[];
-  reviews: Row[];
-  notes: Row[];
-  shortages: Row[];
-  activity: Row[];
-};
-const emptyPresence: CurrentShiftPresence = {
-  doctors: [],
-  assistants: [],
-  delivery: [],
-  total: 0,
-  loadedAt: new Date(),
-};
+interface TodaySummary {
+  sales_today: number;
+  invoices_count: number;
+  open_followups: number;
+  open_complaints: number;
+  staff_present: number;
+  pending_leaves: number;
+  open_shortages: number;
+  pending_delivery: number;
+  weak_reviews: number;
+  staff_leaves: number;
+  loaded_at: string;
+}
 
 export default function TodayBrief() {
-  const [data, setData] = useState<BriefData>({
-    presence: emptyPresence,
-    followups: [],
-    complaints: [],
-    orders: [],
-    reviews: [],
-    notes: [],
-    shortages: [],
-    activity: [],
-  });
+  const { user } = useAuth();
+  const [data, setData] = useState<TodaySummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { data: result, error: err } = await supabase.rpc('get_today_command_summary', {
+        p_branch: user?.branch || 'all',
+      });
+
+      if (err) throw err;
+      setData(result as TodaySummary);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'تعذر تحميل ملخص اليوم');
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.branch]);
+
   useEffect(() => {
-    let active = true;
-    const load = async () => {
-      setLoading(true);
-      try {
-        const [presence, followups, complaints, orders, reviews, notes, shortages, activity] =
-          await Promise.all([
-            fetchCurrentShiftPresence(),
-            safeRows<Row>('daily_followups', (q) => q.limit(200)),
-            safeRows<Row>('customer_requests', (q) => q.limit(200)),
-            safeRows<Row>('delivery_orders', (q) => q.limit(200)),
-            safeRows<Row>('conversation_sales_reviews', (q) => q.limit(100)),
-            safeRows<Row>('shift_notes', (q) => q.limit(100)),
-            safeRows<Row>('shortages', (q) => q.limit(100)),
-            safeRows<Row>(
-              'activity_log',
-              (q) => q.order('created_at', { ascending: false }).limit(12),
-              12
-            ),
-          ]);
-        if (active)
-          setData({
-            presence,
-            followups: followups.rows.filter((r) => isOpenStatus(r.status ?? r.followup_status)),
-            complaints: complaints.rows.filter((r) => isOpenStatus(r.status)),
-            orders: orders.rows.filter((r) => isOpenStatus(r.status)),
-            reviews: reviews.rows.filter(
-              (r) =>
-                rowDate(r, ['created_at', 'review_date']) === new Date().toISOString().slice(0, 10)
-            ),
-            notes: notes.rows,
-            shortages: shortages.rows.filter((r) => isOpenStatus(r.status)),
-            activity: activity.rows,
-          });
-      } catch (err) {
-        if (active) setError(err instanceof Error ? err.message : 'تعذر تحميل ملخص اليوم');
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
     void load();
-    return () => {
-      active = false;
-    };
-  }, []);
+  }, [load]);
+
+  if (!data && loading) return <SectionState state="loading" />;
+  if (error) return <SectionState state="error" message={error} />;
+  if (!data) return null;
+
+  const d = data;
+  const salesFormatted = d.sales_today.toLocaleString('ar-EG');
+  const loadedTime = new Date(d.loaded_at).toLocaleTimeString('ar-EG');
+
   return (
-    <div className="space-y-5" dir="rtl">
-      <CommandHeader
-        badge="Supervisor Brief"
-        title="اليوم في لمحة"
-        description="كل ما يحتاجه المشرف أو مدير الفرع في شاشة تشغيلية واحدة."
-      />
-      <SectionState loading={loading} error={error} empty={false}>
-        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="space-y-5 p-4" dir="rtl">
+      <div className="flex items-center justify-between">
+        <CommandHeader
+          title="ملخص اليوم"
+          subtitle={`آخر تحديث: ${loadedTime}`}
+        />
+        <button
+          onClick={() => void load()}
+          className="rounded-xl p-2 hover:bg-slate-700/50 transition"
+          title="تحديث البيانات"
+        >
+          <RefreshCw size={18} />
+        </button>
+      </div>
+
+      {/* المبيعات */}
+      <section>
+        <h3 className="mb-3 text-xs font-black uppercase tracking-wider text-teal-400">المبيعات</h3>
+        <div className="grid grid-cols-2 gap-3">
           <MetricCard
-            icon={Users}
-            label="الموجودون في الشيفت"
-            value={data.presence.total}
-            hint={`${data.presence.doctors.length} دكاترة`}
+            label="إجمالي اليوم"
+            value={`${salesFormatted} ج.م`}
+            icon={<Activity size={18} />}
+            tone="teal"
           />
-          <MetricCard icon={Truck} label="الدليفري الموجود" value={data.presence.delivery.length} />
-          <MetricCard icon={Headphones} label="المتابعات المعلقة" value={data.followups.length} />
           <MetricCard
-            icon={AlertTriangle}
-            label="الشكاوى المفتوحة"
-            value={data.complaints.length}
-            tone={data.complaints.length ? 'red' : 'green'}
+            label="عدد الفواتير"
+            value={d.invoices_count}
+            icon={<ClipboardList size={18} />}
+            tone="sky"
           />
-          <MetricCard icon={Truck} label="الأوردرات المعلقة" value={data.orders.length} />
-          <MetricCard icon={Star} label="تقييمات اليوم" value={data.reviews.length} />
-          <MetricCard icon={ClipboardList} label="ملاحظات الشيفت" value={data.notes.length} />
+        </div>
+      </section>
+
+      {/* خدمة العملاء */}
+      <section>
+        <h3 className="mb-3 text-xs font-black uppercase tracking-wider text-purple-400">
+          خدمة العملاء
+        </h3>
+        <div className="grid grid-cols-2 gap-3">
           <MetricCard
-            icon={PackageSearch}
-            label="النواقص المهمة"
-            value={data.shortages.length}
-            tone="amber"
+            label="متابعات مفتوحة"
+            value={d.open_followups}
+            icon={<Headphones size={18} />}
+            tone={d.open_followups > 10 ? 'rose' : 'emerald'}
           />
-        </section>
-        <section className="grid gap-4 lg:grid-cols-2">
-          <div className="dawaa-panel">
-            <h2 className="mb-4 text-lg font-black text-slate-950 dark:text-white">
-              الفريق الموجود الآن
-            </h2>
-            <div className="space-y-2">
-              {[
-                ...data.presence.doctors,
-                ...data.presence.assistants,
-                ...data.presence.delivery,
-              ].map((person) => (
-                <div
-                  key={`${person.id}-${person.name}`}
-                  className="flex justify-between rounded-xl border border-slate-200 p-3 dark:border-slate-700"
-                >
-                  <span className="font-bold">{person.name}</span>
-                  <span className="text-xs text-slate-500">
-                    {person.role} · {person.attendance_status}
-                  </span>
-                </div>
-              ))}
-              {!data.presence.total && (
-                <p className="text-sm text-slate-500">لا توجد بيانات حضور كافية حاليًا</p>
-              )}
-            </div>
-          </div>
-          <div className="dawaa-panel">
-            <h2 className="mb-4 flex items-center gap-2 text-lg font-black text-slate-950 dark:text-white">
-              <Activity size={20} /> آخر أنشطة النظام
-            </h2>
-            <div className="space-y-2">
-              {data.activity.map((row, index) => (
-                <div
-                  key={safeText(row.id, String(index))}
-                  className="rounded-xl border border-slate-200 p-3 dark:border-slate-700"
-                >
-                  <div className="font-bold">{safeText(row.action ?? row.operation, 'عملية')}</div>
-                  <div className="mt-1 text-xs text-slate-500">
-                    {safeText(row.user_name, 'النظام')} ·{' '}
-                    {safeText(row.branch ?? row.branch_name, 'غير محدد')}
-                  </div>
-                </div>
-              ))}
-              {!data.activity.length && (
-                <p className="text-sm text-slate-500">لا توجد بيانات كافية لهذا القسم حاليًا</p>
-              )}
-            </div>
-          </div>
-        </section>
-      </SectionState>
+          <MetricCard
+            label="شكاوى مفتوحة"
+            value={d.open_complaints}
+            icon={<AlertTriangle size={18} />}
+            tone={d.open_complaints > 0 ? 'rose' : 'emerald'}
+          />
+        </div>
+      </section>
+
+      {/* الفريق */}
+      <section>
+        <h3 className="mb-3 text-xs font-black uppercase tracking-wider text-blue-400">الفريق</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <MetricCard
+            label="حاضرون الآن"
+            value={d.staff_present}
+            icon={<Users size={18} />}
+            tone="emerald"
+          />
+          <MetricCard
+            label="طلبات إجازة"
+            value={d.pending_leaves}
+            icon={<ClipboardList size={18} />}
+            tone={d.pending_leaves > 0 ? 'amber' : 'emerald'}
+          />
+        </div>
+      </section>
+
+      {/* التشغيل */}
+      <section>
+        <h3 className="mb-3 text-xs font-black uppercase tracking-wider text-amber-400">التشغيل</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <MetricCard
+            label="نواقص مفتوحة"
+            value={d.open_shortages}
+            icon={<PackageSearch size={18} />}
+            tone={d.open_shortages > 5 ? 'rose' : 'amber'}
+          />
+          <MetricCard
+            label="طلبات دليفري"
+            value={d.pending_delivery}
+            icon={<Truck size={18} />}
+            tone={d.pending_delivery > 0 ? 'sky' : 'emerald'}
+          />
+        </div>
+      </section>
+
+      {/* جودة البيانات */}
+      <section>
+        <h3 className="mb-3 text-xs font-black uppercase tracking-wider text-red-400">جودة البيانات</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <MetricCard
+            label="تقييمات منخفضة اليوم"
+            value={d.weak_reviews}
+            icon={<Star size={18} />}
+            tone={d.weak_reviews > 5 ? 'rose' : 'amber'}
+          />
+          <MetricCard
+            label="إجازات بتاريخ اليوم"
+            value={d.staff_leaves}
+            icon={<Users size={18} />}
+            tone={d.staff_leaves > 0 ? 'amber' : 'emerald'}
+          />
+        </div>
+      </section>
+
+      {/* ملاحظة */}
+      <div className="rounded-2xl border border-slate-700 bg-slate-800/50 p-3 text-xs text-slate-400">
+        📡 جميع المقاييس محسوبة من Supabase في الوقت الفعلي عبر دالة واحدة محسّنة.
+      </div>
     </div>
   );
 }
