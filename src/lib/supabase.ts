@@ -7,7 +7,7 @@ const AUTH_STORAGE_KEY = 'dawaa_auth_user_v2';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function readStoredUserId(): string | null {
-  if (typeof window === 'undefined') return null;
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return null;
 
   try {
     const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);

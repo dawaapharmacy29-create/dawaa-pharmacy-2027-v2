@@ -18,11 +18,15 @@ const THEME_CLASS_MAP: Record<AppTheme, string[]> = {
 };
 
 function readTheme(): AppTheme {
-  if (typeof window === 'undefined') return 'dark';
-  const stored = window.localStorage.getItem(THEME_KEY);
-  if (isAllowedTheme(stored)) return stored;
-  window.localStorage.removeItem(THEME_KEY);
-  window.localStorage.removeItem(LEGACY_PALETTE_KEY);
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return 'dark';
+  try {
+    const stored = window.localStorage.getItem(THEME_KEY);
+    if (isAllowedTheme(stored)) return stored;
+    window.localStorage.removeItem(THEME_KEY);
+    window.localStorage.removeItem(LEGACY_PALETTE_KEY);
+  } catch (e) {
+    console.debug('Failed to read theme from localStorage:', e);
+  }
   return 'dark';
 }
 
@@ -41,8 +45,14 @@ export function useTheme() {
 
   useEffect(() => {
     applyTheme(theme);
-    localStorage.setItem(THEME_KEY, theme);
-    localStorage.removeItem(LEGACY_PALETTE_KEY);
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(THEME_KEY, theme);
+        localStorage.removeItem(LEGACY_PALETTE_KEY);
+      } catch (e) {
+        console.debug('Failed to save theme to localStorage:', e);
+      }
+    }
   }, [theme]);
 
   const setTheme = (nextTheme: AppTheme) => {

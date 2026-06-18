@@ -27,11 +27,15 @@ export function isAllowedTheme(value: unknown): value is AppTheme {
 }
 
 function getInitialTheme(): AppTheme {
-  if (typeof window === 'undefined') return 'dark';
-  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
-  if (isAllowedTheme(stored)) return stored;
-  window.localStorage.removeItem(THEME_STORAGE_KEY);
-  window.localStorage.removeItem(LEGACY_PALETTE_KEY);
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return 'dark';
+  try {
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (isAllowedTheme(stored)) return stored;
+    window.localStorage.removeItem(THEME_STORAGE_KEY);
+    window.localStorage.removeItem(LEGACY_PALETTE_KEY);
+  } catch (e) {
+    console.debug('Failed to read theme from localStorage:', e);
+  }
   return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
 }
 
@@ -53,16 +57,26 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const setTheme = useCallback((nextTheme: AppTheme) => {
     if (!isAllowedTheme(nextTheme)) return;
     setThemeState(nextTheme);
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
-      window.localStorage.removeItem(LEGACY_PALETTE_KEY);
+    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+      try {
+        window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+        window.localStorage.removeItem(LEGACY_PALETTE_KEY);
+      } catch (e) {
+        console.debug('Failed to save theme to localStorage:', e);
+      }
     }
   }, []);
 
   const toggleTheme = useCallback(() => {
     setThemeState((current) => {
       const nextTheme: AppTheme = current === 'dark' ? 'light' : 'dark';
-      if (typeof window !== 'undefined') window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+      if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+        try {
+          window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+        } catch (e) {
+          console.debug('Failed to save theme to localStorage:', e);
+        }
+      }
       return nextTheme;
     });
   }, []);

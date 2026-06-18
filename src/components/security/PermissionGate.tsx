@@ -69,7 +69,8 @@ export function RoleBadge() {
 }
 
 export function PageSectionsPreview({ path }: { path: string }) {
-  const { checkPermission } = useAuth();
+  const { user, checkPermission } = useAuth();
+  if (!user) return null;
   const sections = getVisibleSectionsForPath(path, checkPermission);
   if (!sections.length) return null;
   return (

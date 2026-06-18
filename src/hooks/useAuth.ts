@@ -65,11 +65,14 @@ function sanitizeUser(user: User | null): User | null {
 }
 
 function readStoredUser(): User | null {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return null;
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     return stored ? sanitizeUser(JSON.parse(stored) as User) : null;
   } catch {
-    localStorage.removeItem(STORAGE_KEY);
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {}
     return null;
   }
 }
@@ -78,8 +81,14 @@ let currentUser: User | null = readStoredUser();
 
 function setCurrentUser(user: User | null) {
   currentUser = sanitizeUser(user);
-  if (currentUser) localStorage.setItem(STORAGE_KEY, JSON.stringify(currentUser));
-  else localStorage.removeItem(STORAGE_KEY);
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    try {
+      if (currentUser) localStorage.setItem(STORAGE_KEY, JSON.stringify(currentUser));
+      else localStorage.removeItem(STORAGE_KEY);
+    } catch (e) {
+      console.debug('Failed to update localStorage:', e);
+    }
+  }
   listeners.forEach((listener) => listener());
 }
 

@@ -36,14 +36,23 @@ function safeJsonParse<T>(value: string | null, fallback: T): T {
 }
 
 export function getOfflineQueue(): OfflineQueueItem[] {
-  if (typeof window === 'undefined') return [];
-  return safeJsonParse<OfflineQueueItem[]>(window.localStorage.getItem(STORAGE_KEY), []);
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return [];
+  try {
+    return safeJsonParse<OfflineQueueItem[]>(window.localStorage.getItem(STORAGE_KEY), []);
+  } catch (e) {
+    console.debug('Failed to read offline queue from localStorage:', e);
+    return [];
+  }
 }
 
 function saveOfflineQueue(items: OfflineQueueItem[]) {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-  window.dispatchEvent(new CustomEvent('dawaa-offline-queue-changed', { detail: items.length }));
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    window.dispatchEvent(new CustomEvent('dawaa-offline-queue-changed', { detail: items.length }));
+  } catch (e) {
+    console.debug('Failed to save offline queue to localStorage:', e);
+  }
 }
 
 export function addOfflineQueueItem(
