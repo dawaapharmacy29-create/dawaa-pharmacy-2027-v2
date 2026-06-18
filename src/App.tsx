@@ -74,6 +74,14 @@ const NotFound = lazy(() => import("@/pages/NotFound"));
 const MedicineExpiryTracker = lazy(() => import("@/pages/MedicineExpiryTracker"));
 const AttendanceReport = lazy(() => import("@/pages/AttendanceReport"));
 const LoyaltyTiers = lazy(() => import("@/pages/LoyaltyTiers"));
+const DailyCommand = lazy(() => import("@/pages/DailyCommand"));
+const DailyTarget = lazy(() => import("@/pages/DailyTarget"));
+const TodayBrief = lazy(() => import("@/pages/TodayBrief"));
+const RefillReminders = lazy(() => import("@/pages/RefillReminders"));
+const CustomerHealthProfile = lazy(() => import("@/pages/CustomerHealthProfile"));
+const ExpiryDiscounts = lazy(() => import("@/pages/ExpiryDiscounts"));
+const EmployeeKpi = lazy(() => import("@/pages/EmployeeKpi"));
+const SupplierPerformance = lazy(() => import("@/pages/SupplierPerformance"));
 
 const ROUTE_PERMISSIONS: Record<string, string> = {
   "/": "page.dashboard.view",
@@ -114,6 +122,14 @@ const ROUTE_PERMISSIONS: Record<string, string> = {
   "/medicine-expiry": "page.stagnant_medicines.view",
   "/attendance-report": "page.team.view",
   "/loyalty-tiers": "page.customer_cashback.view",
+  "/daily-command": "page.dashboard.view",
+  "/daily-target": "page.dashboard.view",
+  "/today-brief": "page.dashboard.view",
+  "/refill-reminders": "page.customers.view",
+  "/customer-health": "page.customers.view",
+  "/expiry-discounts": "page.stagnant_medicines.view",
+  "/employee-kpi": "page.team.view",
+  "/supplier-performance": "page.analytics.view",
 };
 
 function AppLoading() {
@@ -222,6 +238,9 @@ export default function App() {
               <Route path="/quarterly-incentives" element={protectedElement(<QuarterlyIncentives2027 />)} />
               <Route path="/operations-center" element={protectedElement(<OperationsCenter2027 />)} />
               <Route path="/data-health" element={protectedElement(<DataHealthCenter />)} />
+              <Route path="/daily-command" element={protectedElement(<DailyCommand />)} />
+              <Route path="/daily-target" element={protectedElement(<DailyTarget />)} />
+              <Route path="/today-brief" element={protectedElement(<TodayBrief />)} />
               <Route path="/customers" element={protectedElement(<Customers />)} />
               <Route path="/customer-360" element={protectedElement(<Customer360 />)} />
               <Route path="/customers/import" element={protectedElement(<CustomerImport />, true)} />
@@ -234,6 +253,8 @@ export default function App() {
               <Route path="/customer-coding" element={protectedElement(<CustomerCoding />)} />
               <Route path="/customer-cashback" element={protectedElement(<CustomerCashback />)} />
               <Route path="/loyalty-tiers" element={protectedElement(<LoyaltyTiers />)} />
+              <Route path="/refill-reminders" element={protectedElement(<RefillReminders />)} />
+              <Route path="/customer-health" element={protectedElement(<CustomerHealthProfile />)} />
               <Route path="/customer-service-credit" element={protectedElement(<CustomerServiceCredit />)} />
               <Route path="/shift-notes" element={protectedElement(<ShiftNotes />)} />
               <Route path="/shelf-organization" element={protectedElement(<ShelfOrganization />)} />
@@ -259,6 +280,7 @@ export default function App() {
               <Route path="/doctor-dashboard" element={protectedElement(<DoctorDashboard />)} />
               <Route path="/stagnant-medicines" element={protectedElement(<StagnantMedicines />)} />
               <Route path="/medicine-expiry" element={protectedElement(<MedicineExpiryTracker />)} />
+              <Route path="/expiry-discounts" element={protectedElement(<ExpiryDiscounts />)} />
               <Route path="/attendance-report" element={protectedElement(<AttendanceReport />)} />
               <Route path="/incentive-medicines" element={protectedElement(<IncentiveMedicines />)} />
               <Route path="/staff-accounts" element={protectedElement(<StaffAccounts />, true)} />
@@ -275,6 +297,8 @@ export default function App() {
               <Route path="/activity-log" element={protectedElement(<ActivityLog />, true)} />
               <Route path="/penalty-incentive" element={protectedElement(<PenaltyIncentiveManagement />, true)} />
               <Route path="/staff-dashboard" element={protectedElement(<StaffDashboard />)} />
+              <Route path="/employee-kpi" element={protectedElement(<EmployeeKpi />)} />
+              <Route path="/supplier-performance" element={protectedElement(<SupplierPerformance />)} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>

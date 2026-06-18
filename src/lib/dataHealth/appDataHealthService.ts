@@ -74,6 +74,11 @@ export async function loadAppDataHealthSummary() {
     inactiveStaff,
     pointRowsWithoutStaff,
     invoicesWithNumber,
+    customersWithoutBranch,
+    customersWithoutPhone,
+    staffAccountsWithoutStaff,
+    reviewsWithoutPoints,
+    ...tableChecks
   ] = await Promise.all([
     safeCount("sales_invoices", (query) =>
       query.or("customer_name.ilike.%عميل غير مسجل%,customer_name.ilike.%عميل الصيدلية%,and(customer_code.is.null,customer_phone.is.null,customer_name.is.null),and(customer_code.eq.,customer_phone.eq.,customer_name.eq.)"),
@@ -88,8 +93,14 @@ export async function loadAppDataHealthSummary() {
     safeCount("staff", (query) => query.eq("active", false)),
     safeCount("employee_transactions", (query) => query.is("staff_id", null)),
     safeCount("sales_invoices", (query) => query.or("invoice_no.not.is.null,invoice_number.not.is.null")),
+    safeCount("customers", (query) => query.or("branch.is.null,branch.eq.")),
+    safeCount("customers", (query) => query.or("phone.is.null,phone.eq.")),
+    safeCount("staff_accounts", (query) => query.is("staff_id", null)),
+    safeCount("conversation_sales_reviews", (query) => query.is("points_transaction_id", null)),
+    ...["customers", "sales_invoices", "staff", "staff_accounts", "daily_followups", "conversation_sales_reviews", "employee_transactions", "activity_log", "branches", "branch_sales_targets"].map((table) => safeCount(table, (query) => query.limit(1))),
   ]);
 
+  const coreTables = ["customers", "sales_invoices", "staff", "staff_accounts", "daily_followups", "conversation_sales_reviews", "employee_transactions", "activity_log", "branches", "branch_sales_targets"];
   return [
     issue({
       key: "invoices-without-customer",
@@ -161,6 +172,11 @@ export async function loadAppDataHealthSummary() {
       affectedPages: ["/invoices", "/analytics", "/", "/staff/:id"],
       error: invoicesWithNumber.error,
     }),
+    issue({ key: "customers-without-branch", label: "عملاء بدون فرع", count: customersWithoutBranch.count, severity: severityForCount(customersWithoutBranch.count, 100), source: "customers", suggestedFix: "حدد الفرع الرئيسي للعميل لضمان دقة التقارير والمتابعات.", affectedPages: ["/customers", "/customer-data-review"], error: customersWithoutBranch.error }),
+    issue({ key: "customers-without-phone", label: "عملاء بدون رقم هاتف", count: customersWithoutPhone.count, severity: severityForCount(customersWithoutPhone.count, 100), source: "customers", suggestedFix: "استكمل الهاتف الصحيح قبل تشغيل رسائل واتساب أو إعادة الصرف.", affectedPages: ["/customers", "/customer-data-review"], error: customersWithoutPhone.error }),
+    issue({ key: "accounts-without-staff", label: "حسابات بدون موظف", count: staffAccountsWithoutStaff.count, severity: severityForCount(staffAccountsWithoutStaff.count, 5), source: "staff_accounts", suggestedFix: "اربط كل حساب دخول بسجل موظف نشط.", affectedPages: ["/staff-accounts", "/team"], error: staffAccountsWithoutStaff.error }),
+    issue({ key: "reviews-without-points", label: "تقييمات محادثات بدون ربط نقاط", count: reviewsWithoutPoints.count, severity: severityForCount(reviewsWithoutPoints.count, 10), source: "conversation_sales_reviews", suggestedFix: "راجع تكامل التقييمات مع سجل النقاط قبل اعتماد الحافز.", affectedPages: ["/reviews", "/points"], error: reviewsWithoutPoints.error }),
+    ...coreTables.map((table, index) => issue({ key: `table-${table}`, label: `جاهزية جدول ${table}`, count: tableChecks[index]?.error ? null : 0, severity: tableChecks[index]?.error ? "warning" : "info", source: table, suggestedFix: tableChecks[index]?.error ? "الجدول غير موجود أو غير مفعّل" : "الجدول متاح للقراءة", affectedPages: ["/data-health"], error: tableChecks[index]?.error })),
   ];
 }
 
