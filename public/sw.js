@@ -3,17 +3,15 @@
  * Versioned cache + offline fallback + auto-update
  */
 
-const APP_VERSION = 'dawaa-v18.2-single-payload-dashboard-20260614';
+const APP_VERSION = 'dawaa-v18.3-command-center-dashboard-20260618';
 const CACHE_STATIC = `${APP_VERSION}-static`;
 const CACHE_DYNAMIC = `${APP_VERSION}-dynamic`;
 const CACHE_IMAGES = `${APP_VERSION}-images`;
 
 // Assets to pre-cache on install
 const PRECACHE_URLS = [
-  '/',
   '/offline.html',
   '/manifest.json',
-  '/login',
   '/icon-192.png',
   '/icon-512.png',
 ];
@@ -135,6 +133,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Vite assets are content-hashed. Prefer the network so a deployment can
+  // never combine a new HTML shell with stale JavaScript chunks.
+  if (url.origin === self.location.origin && url.pathname.startsWith('/assets/')) {
+    event.respondWith(networkFirst(request));
+    return;
+  }
+
   // Static assets (JS, CSS, etc.): stale-while-revalidate
   event.respondWith(staleWhileRevalidate(request));
 });
@@ -159,7 +164,7 @@ async function networkOnly(request) {
 /** Network first → cache fallback */
 async function networkFirst(request) {
   try {
-    const networkRes = await fetch(request.clone());
+    const networkRes = await fetch(request.clone(), { cache: 'no-store' });
     if (networkRes.ok) {
       const cache = await caches.open(CACHE_DYNAMIC);
       try {
@@ -230,21 +235,10 @@ async function staleWhileRevalidate(request) {
 /** Navigation: try network, fallback to static cache, then offline.html */
 async function navigationHandler(request) {
   try {
-    const networkRes = await fetch(request.clone());
-    if (networkRes.ok) {
-      const cache = await caches.open(CACHE_STATIC);
-      try {
-        await cache.put(request, networkRes.clone());
-      } catch (error) {
-        console.warn('SW navigation cache put failed', error);
-      }
-    }
-    return networkRes;
+    // HTML must always come from the active deployment.
+    return await fetch(request.clone(), { cache: 'no-store' });
   } catch {
-    // Try cached version of root
-    const cached = (await caches.match(request)) || (await caches.match('/'));
-    if (cached) return cached;
-    // Last resort: offline page
+    // Offline HTML is the only navigation fallback kept in cache.
     const offlinePage = await caches.match('/offline.html');
     return (
       offlinePage ||

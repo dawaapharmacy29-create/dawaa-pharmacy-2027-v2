@@ -32,7 +32,7 @@ export function usePWA() {
     // ── Register Service Worker ────────────────────────────────────────────
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker
-        .register('/sw.js', { scope: '/' })
+        .register('/sw.js', { scope: '/', updateViaCache: 'none' })
         .then((reg) => {
           console.log('[PWA] SW registered:', reg.scope);
 
@@ -70,8 +70,14 @@ export function usePWA() {
 
       // Detect controller change (new SW took over)
       navigator.serviceWorker.addEventListener('controllerchange', () => {
-        console.log('[PWA] New SW controller activated without forced reload');
-        setState((current) => ({ ...current, hasUpdate: true }));
+        console.log('[PWA] New SW controller activated');
+        const reloadKey = 'dawaa_sw_reloaded_v18_3';
+        if (!sessionStorage.getItem(reloadKey)) {
+          sessionStorage.setItem(reloadKey, '1');
+          window.location.reload();
+          return;
+        }
+        setState((current) => ({ ...current, hasUpdate: false }));
       });
     }
 

@@ -205,10 +205,10 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: bo
             </p>
             <div className="mt-6 flex flex-col gap-3">
               <button
-                onClick={() => window.location.reload()}
+                onClick={() => void recoverApplication()}
                 className="w-full rounded-2xl bg-teal-600 py-3 text-sm font-black text-white hover:bg-teal-500 transition"
               >
-                🔄 إعادة تحميل التطبيق
+                🔄 إصلاح وإعادة تحميل التطبيق
               </button>
               <button
                 onClick={() => {
@@ -226,6 +226,24 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: bo
     }
     return this.props.children;
   }
+}
+
+async function recoverApplication() {
+  try {
+    if ('caches' in window) {
+      const keys = await window.caches.keys();
+      await Promise.all(keys.filter((key) => key.startsWith('dawaa-')).map((key) => window.caches.delete(key)));
+    }
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((registration) => registration.unregister()));
+    }
+  } catch (error) {
+    console.warn('[Recovery] cache cleanup failed', error);
+  }
+  const url = new URL(window.location.href);
+  url.searchParams.set('_recovery', Date.now().toString());
+  window.location.replace(url.toString());
 }
 
 function protectedElement(component: ReactNode, admin = false) {
