@@ -24,6 +24,7 @@ import {
   Star,
   Store,
   Syringe,
+  Target,
   Trash2,
   Truck,
   UserCheck,
@@ -65,20 +66,17 @@ const T = {
 
 const GROUPS: NavGroup[] = [
   {
-    title: "صحة النظام",
-    icon: ShieldCheck,
-    items: [
-      { path: "/data-health", icon: ShieldCheck, label: "صحة البيانات والربط", permission: "view_dashboard" },
-    ],
-  },
-  {
     title: "القيادة اليومية",
     icon: Crown,
     items: [
+      { path: "/daily-command", icon: Crown, label: "مركز القيادة اليومي", permission: "view_dashboard" },
+      { path: "/daily-target", icon: Target, label: "لوحة الهدف اليومي", permission: "view_dashboard" },
+      { path: "/today-brief", icon: ClipboardCheck, label: "اليوم في لمحة", permission: "view_dashboard" },
+      { path: "/operations-center", icon: BellRing, label: "المهام والتنبيهات", permission: "view_dashboard" },
+      { path: "/data-health", icon: ShieldCheck, label: "صحة البيانات", permission: "view_dashboard" },
       { path: "/shift-notes", icon: ClipboardList, label: "ملاحظات الشيفتات", permission: "view_dashboard" },
       { path: "/", icon: Crown, label: "لوحة القيادة 2027", permission: "view_dashboard" },
       { path: "/branch-inspection", icon: ClipboardList, label: "نموذج مرور وتقييم الفروع", permission: "view_dashboard" },
-      { path: "/operations-center", icon: BellRing, label: "المهام والتنبيهات", permission: "view_dashboard" },
       { path: "/activity-log", icon: ActivitySquare, label: "سجل الأنشطة", adminOnly: true, permission: "view_activity_logs" },
     ],
   },
@@ -93,6 +91,7 @@ const GROUPS: NavGroup[] = [
       { path: "/shift-performance", icon: ClipboardList, label: "تقييم الشيفتات", permission: "view_shift_performance" },
       { path: "/attendance-report", icon: ClipboardCheck, label: "تقرير الحضور الشهري", permission: "view_team" },
       { path: "/training", icon: BookOpenCheck, label: "التدريب والاختبارات", permission: "view_dashboard" },
+      { path: "/employee-kpi", icon: BarChart3, label: "مؤشرات أداء الموظفين", permission: "view_team" },
     ],
   },
   {
@@ -108,6 +107,8 @@ const GROUPS: NavGroup[] = [
       { path: "/customer-coding", icon: UserPlus, label: "تكويد العميل", permission: "view_customer_service" },
       { path: "/customer-cashback", icon: Wallet, label: "نقاط العملاء / الكاش باك", permission: "view_customer_service" },
       { path: "/loyalty-tiers", icon: Crown, label: "مستويات ولاء العملاء", permission: "view_customer_service" },
+      { path: "/refill-reminders", icon: Calendar, label: "متابعة إعادة صرف الدواء", permission: "view_customers" },
+      { path: "/customer-health", icon: ShieldCheck, label: "البطاقة الصحية", permission: "view_customers" },
       { path: "/customer-service-credit", icon: ShieldCheck, label: "كريديت خدمة العملاء", permission: "view_customer_service" },
       { path: "/customer-requests", icon: PackageSearch, label: "طلبات العملاء", permission: "view_customer_service" },
       { path: "/reviews", icon: ClipboardCheck, label: "تقييم المحادثات", permission: "view_conversation_reviews" },
@@ -131,6 +132,7 @@ const GROUPS: NavGroup[] = [
     items: [
       { path: "/shortages", icon: PackageSearch, label: "النواقص", permission: "view_dashboard" },
       { path: "/purchases", icon: FileSpreadsheet, label: "المشتريات والموردين", permission: "view_dashboard" },
+      { path: "/supplier-performance", icon: BarChart3, label: "تقييم الموردين", permission: "view_dashboard" },
       { path: "/supplies", icon: Syringe, label: "المستلزمات", permission: "view_dashboard" },
       { path: "/accessories", icon: PackageCheck, label: "الإكسسوار", permission: "view_dashboard" },
       { path: "/shelf-organization", icon: Store, label: "تنظيم الأدوية والرفوف", permission: "view_dashboard" },
@@ -138,6 +140,7 @@ const GROUPS: NavGroup[] = [
       { path: "/branch-cleaning", icon: Trash2, label: "نظافة الفروع", permission: "view_dashboard" },
       { path: "/stagnant-medicines", icon: Package, label: "الأدوية الراكدة", role: T.pharmacist, permission: "view_stagnant_medicines" },
       { path: "/medicine-expiry", icon: AlertTriangle, label: "متابعة صلاحية الأدوية", permission: "view_stagnant_medicines" },
+      { path: "/expiry-discounts", icon: Sparkles, label: "عروض قريبة الانتهاء", permission: "view_stagnant_medicines" },
       { path: "/incentive-medicines", icon: PackageCheck, label: "أدوية اللستة", role: T.pharmacist, permission: "view_incentive_medicines" },
     ],
   },
@@ -201,7 +204,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
       items: group.items.filter((item) => {
         if (item.adminOnly && !isAdmin) return false;
         if (item.role && user?.role !== item.role && !privilegedRoles.has(user?.role || "")) return false;
-        if (!checkPermission(item.permission)) return false;
+        if (!checkPermission(item.permission) && !isAdmin && !privilegedRoles.has(user?.role || "")) return false;
         return true;
       }),
     })).filter((group) => group.items.length > 0);
