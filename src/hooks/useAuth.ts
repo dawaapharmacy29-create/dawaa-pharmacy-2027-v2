@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import type { User } from '@/types';
 import {
@@ -138,7 +138,7 @@ export function useAuth() {
     events.forEach((eventName) => window.addEventListener(eventName, reset, { passive: true }));
     reset();
     return () => { if (timerId) window.clearTimeout(timerId); events.forEach((eventName) => window.removeEventListener(eventName, reset)); };
-  }, [user]);
+  }, [user?.id]);
   const login = useCallback(async (username: string, password: string): Promise<boolean> => {
     const accountUser = await loginWithStaffAccount(username, password);
     if (accountUser) { setCurrentUser(accountUser); logAuthActivity(accountUser, 'login', 'success'); return true; }
@@ -149,13 +149,13 @@ export function useAuth() {
     setCurrentUser(null);
     try { await supabase.rpc('set_current_user_context', { p_user_id: null }); } catch {}
   }, []);
-  const safeUser = sanitizeUser(user);
+  const safeUser = useMemo(() => sanitizeUser(user), [user?.id, user?.role, user?.branch, user?.name, user?.username, user?.active, user?.phone, user?.staffId, JSON.stringify(user?.permissions || {})]);
   const roleKey = normalizeRole(safeText(safeUser?.role, 'assistant'));
   const isAdmin = isAdminRole(roleKey);
   const isBranchManager = isBranchManagerRole(roleKey);
   const canManage = isPrivilegedRole(roleKey) || isBranchManager;
-  const checkPermission = useCallback((permission?: string): boolean => coreHasPermission(sanitizeUser(user), permission || ''), [user]);
-  const hasPermission = useCallback(async (permission?: string): Promise<boolean> => !permission || coreHasPermission(sanitizeUser(user), permission), [user]);
+  const checkPermission = useCallback((permission?: string): boolean => coreHasPermission(safeUser, permission || ''), [safeUser]);
+  const hasPermission = useCallback(async (permission?: string): Promise<boolean> => !permission || coreHasPermission(safeUser, permission), [safeUser]);
   return { user: safeUser, loading: false, login, logout, isAdmin, isBranchManager, canManage, checkPermission, hasPermission };
 }
 
