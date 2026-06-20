@@ -2,6 +2,7 @@ import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from 
 import {
   AlertTriangle,
   CheckCircle2,
+  Clock3,
   ClipboardList,
   History,
   Loader2,
@@ -87,6 +88,31 @@ function normalizeCustomer(c: CustomerRow) {
   };
 }
 
+const CLOSED_REQUEST_STATUSES = new Set(['closed', 'delivered', 'cancelled', 'not_available']);
+
+function requestAgeDays(request: CustomerRequest) {
+  const created = request.requested_at || request.created_at;
+  if (!created) return 0;
+  const timestamp = new Date(created).getTime();
+  return Number.isFinite(timestamp) ? Math.max(0, Math.floor((Date.now() - timestamp) / 86400000)) : 0;
+}
+
+function requestPriority(request: CustomerRequest) {
+  let score = 0;
+  if (requestNeedsAttention(request)) score += 1000;
+  if (/urgent|عاجل/i.test(String(request.urgency || ''))) score += 700;
+  if (/high|مهم/i.test(String(request.urgency || ''))) score += 400;
+  if (request.status === 'needs_customer_confirmation') score += 350;
+  if (!CLOSED_REQUEST_STATUSES.has(String(request.status || ''))) score += requestAgeDays(request) * 10;
+  return score;
+}
+
+function requestProgress(status?: string | null) {
+  const visibleFlow = REQUEST_STATUS_FLOW.filter((item) => !['cancelled', 'not_available'].includes(item.value));
+  const index = visibleFlow.findIndex((item) => item.value === status);
+  return index < 0 ? 8 : Math.max(8, Math.round(((index + 1) / visibleFlow.length) * 100));
+}
+
 export default function CustomerRequests() {
   const { user } = useAuth();
   const [requests, setRequests] = useState<CustomerRequest[]>([]);
@@ -159,7 +185,7 @@ export default function CustomerRequests() {
 
   const stats = useMemo(() => {
     const open = requests.filter(
-      (item) => !['closed', 'delivered', 'cancelled', 'not_available'].includes(String(item.status))
+      (item) => !CLOSED_REQUEST_STATUSES.has(String(item.status))
     ).length;
     return {
       total: requests.length,
@@ -172,6 +198,11 @@ export default function CustomerRequests() {
         .length,
     };
   }, [requests]);
+
+  const sortedRequests = useMemo(
+    () => [...requests].sort((a, b) => requestPriority(b) - requestPriority(a) || new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()),
+    [requests]
+  );
 
   const handleStatusUpdate = async () => {
     if (!selected || !newStatus) return;
@@ -295,24 +326,25 @@ export default function CustomerRequests() {
   }
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+    <div className="w-full max-w-full space-y-5 overflow-hidden" dir="rtl">
+      <section className="rounded-3xl border border-cyan-500/25 bg-gradient-to-l from-[#12304d] via-[#102640] to-slate-950 p-5 text-slate-100 shadow-xl">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
         <div className="flex-1">
-          <div className="section-title flex items-center gap-2">
+          <div className="flex items-center gap-2 text-2xl font-black text-white">
             <PackageSearch size={24} className="text-teal-300" /> طلبات العملاء
           </div>
-          <div className="text-slate-400 text-sm mt-1">
+          <div className="mt-2 max-w-3xl text-sm font-semibold leading-7 text-slate-200">
             تتبع الأصناف المطلوبة من العملاء من لحظة تسجيل الدكتور حتى البحث والتوفير والتواصل
             والتسليم.
           </div>
         </div>
         <button
           onClick={() => setShowCreate((value) => !value)}
-          className="btn-primary flex items-center gap-2"
+          className="btn-primary flex items-center justify-center gap-2 whitespace-nowrap"
         >
           <Plus size={16} /> تسجيل طلب عميل
         </button>
-        <button onClick={loadRequests} className="btn-secondary flex items-center gap-2">
+        <button onClick={loadRequests} className="btn-secondary flex items-center justify-center gap-2 whitespace-nowrap">
           <RefreshCw size={16} /> تحديث
         </button>
         {user?.role === 'مدير عام' && (
@@ -325,6 +357,7 @@ export default function CustomerRequests() {
           </button>
         )}
       </div>
+      </section>
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <Stat label="إجمالي الطلبات" value={stats.total} />
@@ -334,7 +367,9 @@ export default function CustomerRequests() {
         <Stat label="تم توفيرها/وصلت" value={stats.arrived} color="text-green-300" />
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
+      <section className="rounded-3xl border border-slate-700 bg-[#102640] p-4 shadow-lg">
+      <div className="mb-3 flex items-center justify-between gap-3"><div><h2 className="font-black text-white">مسار تنفيذ الطلبات</h2><p className="mt-1 text-xs text-slate-300">اضغط على أي مرحلة لعرض طلباتها مباشرة</p></div><button type="button" onClick={() => setStatusFilter('all')} className="shrink-0 rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-xs font-bold text-slate-100 hover:border-cyan-400">عرض الكل</button></div>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
         {REQUEST_STATUS_FLOW.slice(0, 7).map((stage, idx) => {
           const count = requests.filter(
             (item) => String(item.status || 'new') === stage.value
@@ -344,7 +379,7 @@ export default function CustomerRequests() {
               key={stage.value}
               type="button"
               onClick={() => setStatusFilter(stage.value)}
-              className={`rounded-2xl border p-3 text-right transition-all ${statusFilter === stage.value ? 'border-teal-400 bg-teal-500/15' : 'border-white/10 bg-white/5 hover:border-teal-400/30'}`}
+              className={`min-h-[104px] rounded-2xl border p-3 text-right transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 ${statusFilter === stage.value ? 'border-cyan-300 bg-cyan-500/20 shadow-lg' : 'border-slate-600 bg-slate-900/70 hover:border-cyan-400/60 hover:bg-slate-800'}`}
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="w-7 h-7 rounded-xl bg-teal-500/15 text-teal-300 flex items-center justify-center font-black num">
@@ -357,6 +392,7 @@ export default function CustomerRequests() {
           );
         })}
       </div>
+      </section>
 
       {showCreate && (
         <CreateRequestPanel
@@ -372,7 +408,7 @@ export default function CustomerRequests() {
         />
       )}
 
-      <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-4 grid grid-cols-1 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 gap-3 rounded-2xl border border-slate-700 bg-[#102640] p-4 lg:grid-cols-4">
         <div className="relative lg:col-span-2">
           <Search size={16} className="absolute left-3 top-3 text-slate-400" />
           <input
@@ -404,18 +440,18 @@ export default function CustomerRequests() {
         </select>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-        <div className="space-y-2 max-h-[calc(100vh-330px)] overflow-y-auto">
+      <div className="grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-[minmax(300px,0.9fr)_minmax(0,2.1fr)]">
+        <div className="max-h-[calc(100vh-230px)] space-y-2 overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950/40 p-3 [scrollbar-color:#22d3ee_#0f172a] [scrollbar-width:thin]">
           {requests.length === 0 ? (
             <div className="stat-card text-center py-12 text-slate-400">
               لا توجد متابعات مسجلة حاليًا
             </div>
           ) : (
-            requests.map((request) => (
+            sortedRequests.map((request) => (
               <button
                 key={request.id}
                 onClick={() => setSelected(request)}
-                className={`w-full text-right p-4 rounded-2xl border transition-all ${selected?.id === request.id ? 'bg-teal-500/10 border-teal-400/40' : 'bg-[#1B2B4B] border-[#2d4063] hover:border-teal-400/25'}`}
+                className={`w-full rounded-2xl border p-4 text-right transition-all ${selected?.id === request.id ? 'border-cyan-300 bg-cyan-500/15 shadow-lg' : 'border-slate-700 bg-[#132946] hover:border-cyan-400/50 hover:bg-[#173452]'}`}
               >
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-xl bg-teal-500/15 flex items-center justify-center text-teal-300">
@@ -435,10 +471,11 @@ export default function CustomerRequests() {
                       {request.customer_code || 'غير محدد'} —{' '}
                       {displayEgyptianPhone(request.customer_phone || '')}
                     </div>
-                    <div className="flex flex-wrap gap-2 mt-2 text-xs text-slate-400">
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-300">
                       <span>الكمية: {request.quantity || 1}</span>
                       <span>الدكتور: {request.doctor_name || 'غير محدد'}</span>
                       <span>{request.branch || 'كل الفروع'}</span>
+                      <span className="inline-flex items-center gap-1 text-cyan-200"><Clock3 size={12} /> منذ {requestAgeDays(request)} يوم</span>
                     </div>
                   </div>
                 </div>
@@ -447,14 +484,12 @@ export default function CustomerRequests() {
           )}
         </div>
 
-        <div className="xl:col-span-2">
+        <div className="min-w-0">
           {selected ? (
             <div className="space-y-4">
-              <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-5">
+              <div className="rounded-3xl border border-cyan-500/25 bg-[#102640] p-5 shadow-xl">
                 <div className="flex flex-col lg:flex-row lg:items-start gap-4">
-                  <div className="w-14 h-14 rounded-2xl bg-teal-500/15 border border-teal-400/25 flex items-center justify-center text-teal-300">
-                    <ShoppingCart size={26} />
-                  </div>
+                  {(selected.medicine_image_url || selected.item_image_url) ? <img src={selected.medicine_image_url || selected.item_image_url || ''} alt={selected.medicine_name} className="h-20 w-20 shrink-0 rounded-2xl border border-cyan-400/30 bg-slate-900 object-cover" /> : <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-teal-400/25 bg-teal-500/15 text-teal-300"><ShoppingCart size={26} /></div>}
                   <div className="flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="text-white text-xl font-bold">{selected.medicine_name}</h2>
@@ -487,8 +522,9 @@ export default function CustomerRequests() {
                         value={`${selected.branch || 'غير محدد'} — ${selected.quantity || 1} علبة`}
                       />
                     </div>
+                    <div className="mt-4"><div className="mb-1 flex items-center justify-between text-xs font-bold text-slate-300"><span>تقدم تنفيذ الطلب</span><span className="num text-cyan-200">{requestProgress(selected.status)}%</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-gradient-to-l from-cyan-400 to-teal-500 transition-all" style={{ width: `${requestProgress(selected.status)}%` }} /></div></div>
                   </div>
-                  <div className="flex flex-col gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
                     <button onClick={openWhatsApp} className="btn-primary">
                       واتساب العميل
                     </button>
@@ -512,6 +548,8 @@ export default function CustomerRequests() {
                     label="تاريخ التسجيل"
                     value={selected.created_at ? formatDate(selected.created_at) : 'غير محدد'}
                   />
+                  <Line label="موعد احتياج العميل" value={selected.needed_by_date ? formatDate(selected.needed_by_date) : selected.expected_fulfillment_days ? `خلال ${selected.expected_fulfillment_days} يوم` : 'غير محدد'} />
+                  <Line label="عمر الطلب" value={`${requestAgeDays(selected)} يوم`} />
                 </InfoCard>
 
                 <InfoCard title="إدارة الحالة والمتابعة">
@@ -549,11 +587,11 @@ export default function CustomerRequests() {
                 {events.length === 0 ? (
                   <div className="text-slate-400 text-sm">لا توجد أحداث مسجلة لهذا الطلب بعد.</div>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="relative space-y-3 before:absolute before:bottom-3 before:right-[11px] before:top-3 before:w-px before:bg-cyan-500/30">
                     {events.map((event) => (
                       <div
                         key={event.id}
-                        className="bg-white/5 border border-white/10 rounded-xl p-3"
+                        className="relative mr-6 rounded-xl border border-slate-700 bg-slate-900/70 p-3 before:absolute before:-right-[31px] before:top-4 before:h-3 before:w-3 before:rounded-full before:border-2 before:border-[#102640] before:bg-cyan-400"
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="text-white font-semibold">
